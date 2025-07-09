@@ -19,11 +19,11 @@ Das entwickelte Robotersystem basiert auf einer **modularen Schichtenarchitektur
 │       Application Layer             │
 │  (Betriebsmodus-Controller)         │
 ├─────────────────────────────────────┤
-│        Service Layer               │
-│   (Sensor/Motor Services)          │
+│        Service Layer                │
+│   (Sensor/Motor Services)           │
 ├─────────────────────────────────────┤
-│       Hardware Layer              │
-│  (GPIO/Physical Components)        │
+│       Hardware Layer                │
+│  (GPIO/Physical Components)         │
 └─────────────────────────────────────┘
 ```
 

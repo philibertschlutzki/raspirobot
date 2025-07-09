@@ -36,15 +36,15 @@ Die **ZX-11H Motor Controller** werden über PWM-Signale mit 1kHz Frequenz geste
 
 #### Service-Schicht mit Multithreading
 
-Das **SensorService** implementiert kontinuierliche Sensorüberwachung mit 20Hz Update-Rate in einem separaten Thread[^15][^16]. Thread-sichere Datenverarbeitung wird durch Locks gewährleistet[^15][^17]. Das **MotorService** steuert die differentielle Lenkung mit PWM-basierter Geschwindigkeitskontrolle[^16][^18][^19].
+Das **SensorService** implementiert kontinuierliche Sensorüberwachung mit 20Hz Update-Rate in einem separaten Thread[^15][^16]. Thread-sichere Datenverarbeitung wird durch Locks gewährleistet[^15][^17]. Das **MotorService** steuert die differentielle Lenkung mit PWM-basierter Geschwindigkeitskontrolle.
 
 #### Betriebsmodi
 
-**PatrolMode** implementiert autonome Patrouillierung mit Hinderniserkennung: Bei Hindernissen unter 30cm wird automatisch eine Ausweichstrategie aktiviert. **FollowMode** realisiert Personenverfolgung basierend auf Mikrowellensensor-Daten mit Suchverhalten bei Zielverlust[^10][^11].
+**PatrolMode** implementiert autonome Patrouillierung mit Hinderniserkennung: Bei Hindernissen unter 30cm wird automatisch eine Ausweichstrategie aktiviert. **FollowMode** realisiert Personenverfolgung basierend auf Mikrowellensensor-Daten mit Suchverhalten bei Zielverlust.
 
 ### Web-Interface
 
-Das **Flask-basierte Web-Interface** bietet eine vollständige Roboter-Steuerung[^20][^21][^22]. **WebSocket-Integration** ermöglicht Echtzeitdaten-Updates ohne Seitenneuladung[^20][^23]. Das **responsive Dashboard** zeigt Live-Sensordaten, eine interaktive Umgebungskarte, Modus-Umschaltung und manuelle Steuerung[^20][^24].
+Das **Flask-basierte Web-Interface** bietet eine vollständige Roboter-Steuerung. **WebSocket-Integration** ermöglicht Echtzeitdaten-Updates ohne Seitenneuladung. Das **responsive Dashboard** zeigt Live-Sensordaten, eine interaktive Umgebungskarte, Modus-Umschaltung und manuelle Steuerung.
 
 #### Dashboard-Features
 
@@ -57,7 +57,7 @@ Das **Flask-basierte Web-Interface** bietet eine vollständige Roboter-Steuerung
 
 ### Threading-Konzept
 
-Das System verwendet **drei parallele Threads**[^15][^25][^17]:
+Das System verwendet **drei parallele Threads**:
 
 - **Sensor-Thread**: Kontinuierliche Datenerfassung (10-20 Hz)
 - **Mode-Thread**: Verhaltensentscheidungen (5-10 Hz)
@@ -66,7 +66,7 @@ Das System verwendet **drei parallele Threads**[^15][^25][^17]:
 
 ### Deployment und Konfiguration
 
-Das System wird als **Systemd-Service** konfiguriert für automatischen Start beim Booten[^26]. **Graceful Shutdown** sorgt für saubere Ressourcenfreigabe[^17]. **Logging-Framework** dokumentiert alle Systemereignisse und Fehler.
+Das System wird als **Systemd-Service** konfiguriert für automatischen Start beim Booten. **Graceful Shutdown** sorgt für saubere Ressourcenfreigabe. **Logging-Framework** dokumentiert alle Systemereignisse und Fehler.
 
 ### Sicherheit und Erweiterbarkeit
 

@@ -1,4 +1,3 @@
-
 from flask import jsonify, request, send_from_directory
 
 def setup_api(app, socketio, sensor_svc, mode_ctrl):

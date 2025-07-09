@@ -1,4 +1,13 @@
-motor_pin_forward: 17
-motor_pin_stop: 27
-ultrasonic_trigger: 23
-ultrasonic_echo: 24
+motor_pin_forward:        17
+motor_pin_stop:           27
+motor_pin_right:          22
+motor_pin_left:           10
+
+ultrasonic_trigger:       23
+ultrasonic_echo:          24
+ultrasonic_trigger_right: 25
+ultrasonic_echo_right:    8
+ultrasonic_trigger_left:  7
+ultrasonic_echo_left:     1
+
+microwave_pin:            21

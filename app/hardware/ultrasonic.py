@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import time
 import RPi.GPIO as GPIO
 
@@ -8,7 +9,8 @@ class Ultrasonic:
         self.trigger = trigger_pin
         self.echo = echo_pin
 
-    def distance(self):
+    def read_distance(self) -> float:
+        """Misst die Distanz in cm mittels Trigger-Echo-Prinzip."""
         GPIO.output(self.trigger, GPIO.LOW)
         time.sleep(0.0002)
         GPIO.output(self.trigger, GPIO.HIGH)
@@ -20,6 +22,7 @@ class Ultrasonic:
             start = time.time()
         while GPIO.input(self.echo) == 1:
             end = time.time()
+
         duration = end - start
         # Schallgeschwindigkeit 34300 cm/s
         return (duration * 34300) / 2

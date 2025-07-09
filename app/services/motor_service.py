@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import asyncio
 from hardware.gpio_interface import GPIOInterface
 
@@ -15,3 +16,11 @@ class MotorService:
         if not self.stopped:
             self.gpio.set_motor(direction="stop")
             self.stopped = True
+
+    async def turn_right(self):
+        self.gpio.set_motor(direction="right")
+        self.stopped = False
+
+    async def turn_left(self):
+        self.gpio.set_motor(direction="left")
+        self.stopped = False

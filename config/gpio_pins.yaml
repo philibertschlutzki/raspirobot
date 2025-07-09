@@ -1,10 +1,4 @@
-ultrasonic:
-front: {trigger: 23, echo: 24}
-right: {trigger: 25, echo: 8}
-back:  {trigger: 7,  echo: 12}
-left:  {trigger: 16, echo: 20}
-microwave:
-data: 21
-motor:
-left:  {pwm: 18, dir: 27, en: 22}
-right: {pwm: 13, dir: 19, en: 26}
+motor_pin_forward: 17
+motor_pin_stop: 27
+ultrasonic_trigger: 23
+ultrasonic_echo: 24

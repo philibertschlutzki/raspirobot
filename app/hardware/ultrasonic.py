@@ -1,21 +1,25 @@
 import time
+import RPi.GPIO as GPIO
 
-class UltrasonicSensor: def init(self, gpio, pins): self.gpio = gpio self.pins = pins
+class Ultrasonic:
+    def __init__(self, trigger_pin, echo_pin):
+        GPIO.setup(trigger_pin, GPIO.OUT)
+        GPIO.setup(echo_pin, GPIO.IN)
+        self.trigger = trigger_pin
+        self.echo = echo_pin
 
-def read_distance(self, position):
-    trig = self.pins[position]['trigger']
-    echo = self.pins[position]['echo']
-    # Trigger-Impuls
-    self.gpio.write_pin(trig, True)
-    time.sleep(0.00001)
-    self.gpio.write_pin(trig, False)
-    # Echo messen
-    start = time.time()
-    while not self.gpio.read_pin(echo):
+    def distance(self):
+        GPIO.output(self.trigger, GPIO.LOW)
+        time.sleep(0.0002)
+        GPIO.output(self.trigger, GPIO.HIGH)
+        time.sleep(0.00001)
+        GPIO.output(self.trigger, GPIO.LOW)
+
         start = time.time()
-    while self.gpio.read_pin(echo):
-        end = time.time()
-    duration = end - start
-    # Entfernung berechnen (m/s = 34300 cm/s)
-    return (duration * 34300) / 2
-```
+        while GPIO.input(self.echo) == 0:
+            start = time.time()
+        while GPIO.input(self.echo) == 1:
+            end = time.time()
+        duration = end - start
+        # Schallgeschwindigkeit 34300 cm/s
+        return (duration * 34300) / 2

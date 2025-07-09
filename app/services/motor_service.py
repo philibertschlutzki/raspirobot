@@ -1,7 +1,17 @@
+import asyncio
+from hardware.gpio_interface import GPIOInterface
+
 class MotorService:
-    def __init__(self, gpio):
-        self.gpio = gpio
-    def set_speed(self, left_percent, right_percent):
-        # Konvertiert Prozent in PWM-Werte und steuert Richtung
-        self.gpio.set_pwm('left', left_percent)
-        self.gpio.set_pwm('right', right_percent)
+    def __init__(self):
+        self.gpio = GPIOInterface()
+        self.stopped = True
+
+    async def forward(self):
+        if self.stopped:
+            self.gpio.set_motor(direction="forward")
+            self.stopped = False
+
+    async def stop(self):
+        if not self.stopped:
+            self.gpio.set_motor(direction="stop")
+            self.stopped = True

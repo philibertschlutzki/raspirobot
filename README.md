@@ -3,11 +3,11 @@
 
 ### Systemübersicht
 
-Das entwickelte Robotersystem basiert auf einer **modularen Schichtenarchitektur**, die eine klare Trennung zwischen Hardware-Abstraktionsschicht, Service-Schicht, Anwendungslogik und Web-Interface gewährleistet[^1][^2][^3]. Die Architektur ist darauf ausgelegt, alle Anforderungen zu erfüllen: Sensordaten in einem Web-GUI anzuzeigen, zwischen Personenverfolgung und Patroullieren umzuschalten und alle Berechnungen auf dem Raspberry Pi durchzuführen.
+Das entwickelte Robotersystem basiert auf einer **modularen Schichtenarchitektur**, die eine klare Trennung zwischen Hardware-Abstraktionsschicht, Service-Schicht, Anwendungslogik und Web-Interface gewährleistet. Die Architektur ist darauf ausgelegt, alle Anforderungen zu erfüllen: Sensordaten in einem Web-GUI anzuzeigen, zwischen Personenverfolgung und Patroullieren umzuschalten und alle Berechnungen auf dem Raspberry Pi durchzuführen.
 
 ### Hardware-Komponenten und GPIO-Zuordnung
 
-**Raspberry Pi 5 8GB** fungiert als zentrale Steuereinheit mit **40 GPIO-Pins** für die Sensoranbindung[^1][^2][^3]. Die **4x HC-SR04 Ultraschallsensoren** werden strategisch positioniert: Front (GPIO 23/24), Rechts (GPIO 25/8), Hinten (GPIO 7/12) und Links (GPIO 16/20)[^4][^5][^6]. Die **2x ZX-11H Motor Controller** nutzen PWM-fähige Pins: Links (PWM GPIO 18, Direction GPIO 27, Enable GPIO 22) und Rechts (PWM GPIO 13, Direction GPIO 19, Enable GPIO 26)[^7][^8][^9]. Der **RP03D Mikrowellensensor** ist an GPIO 21 angeschlossen[^10][^11][^12].
+**Raspberry Pi 5 8GB** fungiert als zentrale Steuereinheit mit **40 GPIO-Pins** für die Sensoranbindung. Die **4x HC-SR04 Ultraschallsensoren** werden strategisch positioniert: Front (GPIO 23/24), Rechts (GPIO 25/8), Hinten (GPIO 7/12) und Links (GPIO 16/20). Die **2x ZX-11H Motor Controller** nutzen PWM-fähige Pins: Links (PWM GPIO 18, Direction GPIO 27, Enable GPIO 22) und Rechts (PWM GPIO 13, Direction GPIO 19, Enable GPIO 26). Der **RP03D Mikrowellensensor** ist an GPIO 21 angeschlossen.
 
 ### Systemarchitektur
 
@@ -32,7 +32,7 @@ Das entwickelte Robotersystem basiert auf einer **modularen Schichtenarchitektur
 
 #### Hardware-Abstraktionsschicht
 
-Die **ZX-11H Motor Controller** werden über PWM-Signale mit 1kHz Frequenz gesteuert, wobei Geschwindigkeit (-100 bis +100), Richtung und Enable-Status separat kontrolliert werden[^7][^9]. Die **HC-SR04 Sensoren** verwenden das bewährte Trigger-Echo-Prinzip: 10µs Trigger-Impuls, Echo-Zeit-Messung und Distanzberechnung über Schallgeschwindigkeit (343 m/s)[^4][^5][^13]. Der **RP03D Mikrowellensensor** arbeitet mit 24GHz Frequenz für präzise Bewegungserkennung[^10][^14][^12].
+Die **ZX-11H Motor Controller** werden über PWM-Signale mit 1kHz Frequenz gesteuert, wobei Geschwindigkeit (-100 bis +100), Richtung und Enable-Status separat kontrolliert werden. Die **HC-SR04 Sensoren** verwenden das bewährte Trigger-Echo-Prinzip: 10µs Trigger-Impuls, Echo-Zeit-Messung und Distanzberechnung über Schallgeschwindigkeit (343 m/s). Der **RP03D Mikrowellensensor** arbeitet mit 24GHz Frequenz für präzise Bewegungserkennung.
 
 #### Service-Schicht mit Multithreading
 

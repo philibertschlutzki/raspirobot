@@ -114,3 +114,30 @@ robot_controller/
     └── robot.service           # Systemd-Unit für Autostart
 ```
 
+
+---
+
+## GPIO-Pin-Belegung
+
+| Komponente       | Pin         | Funktion           |
+|------------------|-------------|--------------------|
+| Motor links PWM  | 18          | PWM für linken Motor  |
+| Motor links Dir. | 27          | Richtung links       |
+| Motor links En.  | 22          | Enable links         |
+| Motor rechts PWM | 13          | PWM für rechten Motor |
+| Motor rechts Dir.| 19          | Richtung rechts      |
+| Motor rechts En. | 26          | Enable rechts        |
+| US-Front Trigger | 23          | Trigger Front        |
+| US-Front Echo    | 24          | Echo Front           |
+| US-Rechts Trigger| 25          | Trigger Rechts       |
+| US-Rechts Echo   | 8           | Echo Rechts          |
+| US-Back Trigger  | 7           | Trigger Back         |
+| US-Back Echo     | 12          | Echo Back            |
+| US-Links Trigger | 16          | Trigger Links        |
+| US-Links Echo    | 20          | Echo Links           |
+| Mikrowelle       | 21          | Output               |
+
+---
+
+
+

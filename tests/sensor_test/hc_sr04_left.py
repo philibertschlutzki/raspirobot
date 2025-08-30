@@ -20,8 +20,8 @@ import signal
 import sys
 
 # GPIO Pin Definitionen
-TRIG_PIN = 23  # GPIO 23 (Pin 16)
-ECHO_PIN = 24  # GPIO 24 (Pin 18)
+TRIG_PIN = 12  # GPIO 12 (Pin 16)
+ECHO_PIN = 13 # GPIO 13 (Pin 18)
 
 # Schallgeschwindigkeit in cm/s bei 20°C
 SOUND_SPEED = 34300

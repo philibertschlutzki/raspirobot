@@ -26,8 +26,8 @@ try:
         time.sleep(0.5)
     
     # Konstante Geschwindigkeit für 5 Sekunden bei 2%
-    print("Fahre 60 Sekunden mit 2% Geschwindigkeit...")
-    time.sleep(600)
+    print("Fahre 5 Sekunden mit 2% Geschwindigkeit...")
+    time.sleep(5)
     
     # Sanft stoppen: 2% -> 0% in 1%-Schritten
     for duty_cycle in range(2, -1, -1):

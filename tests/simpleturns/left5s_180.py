@@ -12,25 +12,25 @@ pwm_left = HardwarePWM(pwm_channel=0, hz=1000, chip=0)   # GPIO 18
 pwm_right = HardwarePWM(pwm_channel=1, hz=1000, chip=0)  # GPIO 19
 
 # Beide PWM-Kanäle starten mit 0% Duty Cycle
-pwm_right.start(0)
+pwm_left.start(0)
 
 try:
     print("Roboter-Test startet...")
     
     # Langsam anfahren: 0% -> 2% in 1%-Schritten
-    for duty_cycle in range(0, 10, 1):  # 0 bis 2%
-        pwm_right.change_duty_cycle(duty_cycle)
-        print(f"Duty Cycle: {duty_cycle}% (beide Räder)")
+    for duty_cycle in range(0, 15, 2):  # 0 bis 2%
+        pwm_left.change_duty_cycle(duty_cycle)
+        print(f"Duty Cycle: {duty_cycle}% (linkes Rad)")
         time.sleep(0.5)
     
-    # Konstante Geschwindigkeit für 5 Sekunden bei 2%
-    print("Fahre 5 Sekunden mit 2% Geschwindigkeit...")
-    time.sleep(5)
+    # Konstante Geschwindigkeit für 6 Sekunden bei 2%
+    print("Fahre 6 Sekunden mit 2% Geschwindigkeit...")
+    time.sleep(3)
     
     # Sanft stoppen: 2% -> 0% in 1%-Schritten
     for duty_cycle in range(2, -1, -1):
-        pwm_right.change_duty_cycle(duty_cycle)
-        print(f"Duty Cycle: {duty_cycle}% (beide Räder)")
+        pwm_left.change_duty_cycle(duty_cycle)
+        print(f"Duty Cycle: {duty_cycle}% ((linkes Rad)")
         time.sleep(0.5)
 
 except KeyboardInterrupt:
@@ -38,5 +38,5 @@ except KeyboardInterrupt:
 
 finally:
     # Beide PWM-Kanäle stoppen und aufräumen
-    pwm_right.stop()
+    pwm_left.stop()
     print("Roboter gestoppt")

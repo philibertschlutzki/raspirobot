@@ -51,7 +51,7 @@ DURATION_S = 2          # Sekunden pro geraden Fahrabschnitt
 # - True  => HIGH = rückwärts, LOW = vorwärts
 # - False => HIGH = vorwärts, LOW = rückwärts
 # Falls die Drehrichtung am Fahrzeug invertiert ist, hier umschalten.
-DIR_HIGH_IS_BACKWARD = False
+DIR_HIGH_IS_BACKWARD = True
 
 # ---------------------------------------
 # Sanftes Fahren (Rampen)
@@ -227,7 +227,7 @@ def main():
         
         # 1) Vorwärts
         print("Sanft vorwärts anfahren, fahren, sanft stoppen...")
-        soft_run_section(pwm_left, pwm_right, backward=False,
+        soft_run_section(pwm_left, pwm_right, backward=True,
                          duration_s=DURATION_S, target_duty=SPEED_DUTY)
 
         print("Ablauf abgeschlossen.")

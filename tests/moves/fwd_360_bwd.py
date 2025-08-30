@@ -67,7 +67,7 @@ STOP_PAUSE_S = 0.5      # Pause im Stillstand vor Richtungswechsel (s)
 # - TURN_DURATION_S so anpassen, bis ~360° erreicht werden
 # - TURN_DUTY moderat wählen, um kontrollierte Drehung zu erhalten
 TURN_DUTY = 12          # % Duty-Cycle für die Drehung (ggf. leicht höher als SPEED_DUTY)
-TURN_DURATION_S = 2.0   # Sekunden für ~360° (kalibrierpflichtig)
+TURN_DURATION_S = 4.0   # Sekunden für ~360° (kalibrierpflichtig)
 TURN_CLOCKWISE = True   # True = im Uhrzeigersinn, False = gegen den Uhrzeigersinn
 
 def setup():

@@ -19,15 +19,15 @@ try:
     print("Roboter-Test startet...")
     
     # Langsam anfahren: 0% -> 2% in 1%-Schritten
-    for duty_cycle in range(0, 6, 1):  # 0 bis 2%
+    for duty_cycle in range(0, 10, 1):  # 0 bis 2%
         pwm_left.change_duty_cycle(duty_cycle)
         pwm_right.change_duty_cycle(duty_cycle)
         print(f"Duty Cycle: {duty_cycle}% (beide Räder)")
         time.sleep(0.5)
     
     # Konstante Geschwindigkeit für 5 Sekunden bei 2%
-    print("Fahre 60 Sekunden mit 2% Geschwindigkeit...")
-    time.sleep(60)
+    print("Fahre 5 Sekunden mit 2% Geschwindigkeit...")
+    time.sleep(5)
     
     # Sanft stoppen: 2% -> 0% in 1%-Schritten
     for duty_cycle in range(2, -1, -1):

@@ -96,7 +96,7 @@ def main():
             # Geradeaus, wenn beide größer 80 cm
             elif dist_left > 80 and dist_right > 80:
                 print("Fahre geradeaus.")
-                set_motor_speed(15, 15)
+                set_motor_speed(12, 12)
 
             # Drehen: Wenn links <= 80cm, drehe nach rechts
             elif dist_left <= 80:

@@ -51,7 +51,7 @@ DURATION_S = 2          # Sekunden pro geraden Fahrabschnitt
 # - True  => HIGH = rückwärts, LOW = vorwärts
 # - False => HIGH = vorwärts, LOW = rückwärts
 # Falls die Drehrichtung am Fahrzeug invertiert ist, hier umschalten.
-DIR_HIGH_IS_BACKWARD = True
+DIR_HIGH_IS_BACKWARD = False
 
 # ---------------------------------------
 # Sanftes Fahren (Rampen)

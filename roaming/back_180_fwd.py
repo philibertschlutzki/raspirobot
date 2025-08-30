@@ -221,7 +221,7 @@ def main():
     try:
         # 1) Vorwärts
         print("Sanft vorwärts anfahren, fahren, sanft stoppen...")
-        soft_run_section(pwm_left, pwm_right, backward=False,
+        soft_run_section(pwm_left, pwm_right, backward=True,
                          duration_s=DURATION_S, target_duty=SPEED_DUTY)
 
         # 2) 360°-Drehung (zeitbasiert; ggf. TURN_DURATION_S kalibrieren)
@@ -231,7 +231,7 @@ def main():
 
         # 3) Rückwärts
         print("Sanft rückwärts anfahren, fahren, sanft stoppen...")
-        soft_run_section(pwm_left, pwm_right, backward=True,
+        soft_run_section(pwm_left, pwm_right, backward=False,
                          duration_s=DURATION_S, target_duty=SPEED_DUTY)
 
         print("Ablauf abgeschlossen.")

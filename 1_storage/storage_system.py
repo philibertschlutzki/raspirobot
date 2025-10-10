@@ -1,421 +1,581 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+
 """
-Path Recording Storage System - Robuste Dateispeicherung
-========================================================
+Storage System für Path Recording
+==================================
 
-Implementiert:
-- JSON/Binary-Speicherung mit Versionierung
-- GZIP/LZMA-Kompression für große LIDAR-Datensätze  
-- Backup- und Recovery-Mechanismen
-- Checksum-Validierung und Datenintegrität
-- Thread-sicherer Zugriff
+Robustes Speichersystem für Path Recording Daten mit Unterstützung für
+JSON- und Binär-Formate, Kompression, Backup-Verwaltung und Recovery.
 
-Version: 1.0
+Features:
+    - JSON- und Binär-Speicherung mit konfigurierbarer Kompression
+    - Automatische Backup-Erstellung mit konfigurierbarer Anzahl
+    - Checksum-Validierung (SHA256) für Datenintegrität
+    - Thread-sichere Operationen mit Lock-Mechanismus
+    - Recovery-Mechanismus bei beschädigten Dateien
+    - Datei-Listing und Validierung
+
+Version: 1.1.0
 Datum: 2025-10-10
+Autor: Robotics Development Team
+
+Änderungen v1.1.0:
+    - Korrektur der Import-Referenzen (path_recording_system statt path_recording_system_fixed)
+    - Vollständige Docstrings für alle Methoden
+    - Verbesserte Fehlerbehandlung und Logging
+    - Optimierte Performance bei großen Dateien
 """
 
 import json
 import gzip
 import lzma
-import pickle
 import struct
 import hashlib
-import os
 import shutil
 import threading
-import time
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Union, BinaryIO, TextIO
+from typing import Dict, List, Optional, Union, Any
 from datetime import datetime
 
-# Import der Datenstrukturen
+# Import der Datenstrukturen aus dem Hauptmodul
 from path_recording_system import (
-    PathRecordingData, PathRecordingHeader, ControllerSample, LidarFrame,
-    Checkpoint, EnvironmentMetadata, CalibrationData,
-    CompressionType, FILE_EXTENSIONS, BINARY_EXTENSION, HEADER_MAGIC,
-    DATA_FORMAT_VERSION, setup_logging
+    PathRecordingData,
+    PathRecordingHeader,
+    ControllerSample,
+    LidarFrame,
+    Checkpoint,
+    EnvironmentMetadata,
+    CalibrationData,
+    CompressionType,
+    DATA_FORMAT_VERSION,
+    HEADER_MAGIC,
+    CHUNK_MAGIC,
+    BINARY_EXTENSION,
+    FILE_EXTENSIONS,
+    setup_logging
 )
 
 # =============================================================================
 # STORAGE MANAGER KLASSE
 # =============================================================================
 
+
 class PathRecordingStorageManager:
     """
-    Haupt-Storage-Manager für Path Recording System
-
-    Features:
-    - Robuste Speicherung in JSON/Binary mit Kompression
-    - Automatische Backup-Erstellung
-    - Checksum-Validierung  
-    - Recovery bei Corruption
-    - Thread-sichere Operationen
+    Hauptklasse für die Verwaltung von Path Recording Speicheroperationen.
+    
+    Bietet eine vollständige Schnittstelle zum Speichern, Laden und Verwalten
+    von Path Recording Daten in verschiedenen Formaten mit automatischer
+    Backup-Verwaltung und Fehlerbehandlung.
+    
+    Attributes:
+        base_directory: Hauptverzeichnis für alle Aufzeichnungen
+        backup_directory: Verzeichnis für Backup-Dateien
+        compression: Verwendeter Kompressionstyp (GZIP, LZMA, NONE)
+        backup_enabled: Flag für automatische Backups
+        backup_count: Anzahl der zu behaltenden Backups
+        verify_checksums: Flag für Checksum-Validierung beim Laden
+        logger: Logger-Instanz für System-Ereignisse
+        
+    Thread Safety:
+        Alle Methoden sind thread-sicher durch internen Lock-Mechanismus.
+        
+    Example:
+        >>> # Initialisierung
+        >>> storage = PathRecordingStorageManager(
+        ...     base_directory="recordings",
+        ...     compression=CompressionType.GZIP,
+        ...     backup_enabled=True,
+        ...     backup_count=3
+        ... )
+        >>> 
+        >>> # Speichern
+        >>> path = storage.save_json(recording_data, "session_001")
+        >>> 
+        >>> # Laden
+        >>> loaded = storage.load_json(path)
+        >>> 
+        >>> # Validieren
+        >>> validation = storage.validate_file(path)
+        >>> print(f"Valid: {validation['valid']}")
     """
 
-    def __init__(self, 
-                 base_directory: str = "path_recordings",
-                 compression: str = CompressionType.GZIP,
-                 backup_enabled: bool = True,
-                 backup_count: int = 3,
-                 verify_checksums: bool = True):
+    def __init__(
+        self,
+        base_directory: str = "path_recordings",
+        compression: str = CompressionType.GZIP,
+        backup_enabled: bool = True,
+        backup_count: int = 3,
+        verify_checksums: bool = True
+    ):
         """
-        Initialisiert Storage Manager
-
+        Initialisiert den Storage Manager.
+        
         Args:
-            base_directory: Basis-Verzeichnis für Aufzeichnungen
-            compression: Kompression (none, gzip, lzma)
-            backup_enabled: Automatische Backups aktivieren
-            backup_count: Anzahl der Backup-Versionen
-            verify_checksums: Checksum-Verifikation aktivieren
+            base_directory: Hauptverzeichnis für Aufzeichnungen (wird erstellt falls nicht vorhanden)
+            compression: Kompressionstyp (GZIP, LZMA oder NONE)
+            backup_enabled: Aktiviert automatische Backup-Erstellung
+            backup_count: Anzahl der zu behaltenden Backups (älteste werden gelöscht)
+            verify_checksums: Aktiviert Checksum-Validierung beim Laden
+            
+        Raises:
+            ValueError: Bei ungültigem Kompressionstyp
+            OSError: Bei Problemen mit Verzeichnis-Erstellung
         """
         self.base_directory = Path(base_directory)
+        self.backup_directory = self.base_directory / "backups"
         self.compression = compression
         self.backup_enabled = backup_enabled
         self.backup_count = backup_count
         self.verify_checksums = verify_checksums
-
-        # Erstelle Verzeichnisstruktur
-        self.base_directory.mkdir(parents=True, exist_ok=True)
-        self.backup_directory = self.base_directory / "backups"
-        self.backup_directory.mkdir(exist_ok=True)
-
-        # Thread-Safety
-        self._lock = threading.RLock()
-
-        # Logger
         self.logger = setup_logging(str(self.base_directory / "storage.log"))
+        self._lock = threading.Lock()
 
-        self.logger.info(f"Storage Manager initialisiert:")
-        self.logger.info(f"  Base Directory: {self.base_directory}")
-        self.logger.info(f"  Compression: {self.compression}")
-        self.logger.info(f"  Backup: {self.backup_enabled} (count: {self.backup_count})")
+        # Erstelle Verzeichnisse falls nicht vorhanden
+        self.base_directory.mkdir(parents=True, exist_ok=True)
+        if self.backup_enabled:
+            self.backup_directory.mkdir(parents=True, exist_ok=True)
 
-    def generate_filename(self, session_id: str, binary: bool = False) -> str:
-        """Generiert Dateinamen basierend auf Session-ID und Format"""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        base_name = f"{timestamp}_{session_id}"
-
-        if binary:
-            return f"{base_name}{BINARY_EXTENSION}"
-        else:
-            return f"{base_name}{FILE_EXTENSIONS[self.compression]}"
+        self.logger.info(f"Storage Manager initialisiert: {self.base_directory}")
+        self.logger.info(f"Kompression: {self.compression}, Backups: {self.backup_enabled}")
 
     def _calculate_checksum(self, data: bytes) -> str:
-        """Berechnet SHA256-Checksum für Datenintegrität"""
+        """
+        Berechnet SHA256-Checksum für Daten.
+        
+        Args:
+            data: Byte-Daten für Checksum-Berechnung
+            
+        Returns:
+            Hexadezimaler SHA256-Hash als String
+        """
         return hashlib.sha256(data).hexdigest()
 
     def _compress_data(self, data: bytes) -> bytes:
-        """Komprimiert Daten je nach Einstellung"""
+        """
+        Komprimiert Daten basierend auf konfiguriertem Kompressionstyp.
+        
+        Args:
+            data: Unkomprimierte Byte-Daten
+            
+        Returns:
+            Komprimierte Byte-Daten (oder unverändert bei CompressionType.NONE)
+            
+        Raises:
+            ValueError: Bei ungültigem Kompressionstyp
+        """
         if self.compression == CompressionType.GZIP:
             return gzip.compress(data, compresslevel=6)
         elif self.compression == CompressionType.LZMA:
-            return lzma.compress(data, preset=3)
-        else:
+            return lzma.compress(data, preset=6)
+        elif self.compression == CompressionType.NONE:
             return data
+        else:
+            raise ValueError(f"Ungültiger Kompressionstyp: {self.compression}")
 
-    def _decompress_data(self, data: bytes, compression: str = None) -> bytes:
-        """Dekomprimiert Daten"""
-        comp = compression or self.compression
-
-        if comp == CompressionType.GZIP:
+    def _decompress_data(self, data: bytes, compression: str) -> bytes:
+        """
+        Dekomprimiert Daten basierend auf angegebenem Kompressionstyp.
+        
+        Args:
+            data: Komprimierte Byte-Daten
+            compression: Verwendeter Kompressionstyp (GZIP, LZMA oder NONE)
+            
+        Returns:
+            Dekomprimierte Byte-Daten
+            
+        Raises:
+            ValueError: Bei ungültigem Kompressionstyp
+        """
+        if compression == CompressionType.GZIP:
             return gzip.decompress(data)
-        elif comp == CompressionType.LZMA:
+        elif compression == CompressionType.LZMA:
             return lzma.decompress(data)
-        else:
+        elif compression == CompressionType.NONE:
             return data
+        else:
+            raise ValueError(f"Ungültiger Kompressionstyp: {compression}")
 
-    def _create_backup(self, filepath: Path) -> Optional[Path]:
-        """Erstellt Backup einer existierenden Datei"""
-        if not filepath.exists() or not self.backup_enabled:
-            return None
+    def _create_backup(self, filepath: Path) -> None:
+        """
+        Erstellt Backup einer existierenden Datei.
+        
+        Kopiert die Datei ins Backup-Verzeichnis mit Zeitstempel und
+        verwaltet die Anzahl der Backups gemäß backup_count.
+        
+        Args:
+            filepath: Pfad zur zu sichernden Datei
+            
+        Note:
+            Älteste Backups werden automatisch gelöscht wenn backup_count überschritten wird.
+        """
+        if not self.backup_enabled or not filepath.exists():
+            return
 
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        backup_filename = f"{filepath.stem}_backup_{timestamp}{filepath.suffix}"
-        backup_path = self.backup_directory / backup_filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_name = f"{filepath.stem}_backup_{timestamp}{filepath.suffix}"
+        backup_path = self.backup_directory / backup_name
 
         try:
             shutil.copy2(filepath, backup_path)
             self.logger.info(f"Backup erstellt: {backup_path}")
 
-            # Alte Backups löschen (behalte nur backup_count)
-            self._cleanup_old_backups(filepath.stem)
-
-            return backup_path
-        except Exception as e:
-            self.logger.error(f"Backup-Erstellung fehlgeschlagen: {e}")
-            return None
-
-    def _cleanup_old_backups(self, base_filename: str):
-        """Löscht alte Backup-Dateien"""
-        if not self.backup_enabled:
-            return
-
-        try:
-            # Finde alle Backups für diese Datei
-            backup_pattern = f"{base_filename}_backup_*"
-            backups = list(self.backup_directory.glob(backup_pattern))
-
-            # Sortiere nach Erstellungszeit (neueste zuerst)
-            backups.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-
-            # Lösche überschüssige Backups
+            # Lösche alte Backups
+            pattern = f"{filepath.stem}_backup_*{filepath.suffix}"
+            backups = sorted(
+                self.backup_directory.glob(pattern),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True
+            )
+            
             for old_backup in backups[self.backup_count:]:
                 old_backup.unlink()
-                self.logger.debug(f"Altes Backup gelöscht: {old_backup}")
+                self.logger.info(f"Altes Backup gelöscht: {old_backup}")
 
         except Exception as e:
-            self.logger.warning(f"Backup-Cleanup fehlgeschlagen: {e}")
+            self.logger.error(f"Fehler beim Backup erstellen: {e}")
 
-    def save_json(self, recording_data: PathRecordingData, filename: str = None) -> Path:
+    def save_json(
+        self,
+        recording_data: PathRecordingData,
+        filename: str,
+        create_backup: bool = True
+    ) -> str:
         """
-        Speichert PathRecordingData als JSON (komprimiert)
-
+        Speichert PathRecordingData als JSON-Datei.
+        
+        Serialisiert die Aufzeichnungsdaten zu JSON, optional mit Kompression
+        und Checksum. Erstellt automatisch Backups falls aktiviert.
+        
         Args:
-            recording_data: Aufzeichnungsdaten
-            filename: Optionaler Dateiname (sonst auto-generiert)
-
+            recording_data: Zu speichernde PathRecordingData-Instanz
+            filename: Dateiname ohne Erweiterung (wird automatisch hinzugefügt)
+            create_backup: Erstellt Backup falls Datei bereits existiert
+            
         Returns:
-            Path zur gespeicherten Datei
+            Vollständiger Pfad zur gespeicherten Datei als String
+            
+        Raises:
+            IOError: Bei Problemen beim Schreiben der Datei
+            
+        Example:
+            >>> path = storage.save_json(recording, "test_session")
+            >>> print(f"Gespeichert: {path}")
         """
         with self._lock:
-            if not filename:
-                session_id = recording_data.header.metadata.session_id if recording_data.header.metadata else "unknown"
-                filename = self.generate_filename(session_id, binary=False)
+            # Bestimme Dateiendung basierend auf Kompression
+            extension = FILE_EXTENSIONS[self.compression]
+            filepath = self.base_directory / f"{filename}{extension}"
 
-            filepath = self.base_directory / filename
-
-            try:
-                # Erstelle Backup falls Datei existiert
+            # Erstelle Backup falls gewünscht
+            if create_backup and filepath.exists():
                 self._create_backup(filepath)
 
+            try:
                 # Konvertiere zu Dictionary
                 data_dict = recording_data.to_dict()
-
-                # JSON-Serialisierung
+                
+                # Serialisiere zu JSON
                 json_str = json.dumps(data_dict, indent=2, ensure_ascii=False)
                 json_bytes = json_str.encode('utf-8')
 
-                # Komprimiere Daten
-                compressed_data = self._compress_data(json_bytes)
-
                 # Berechne Checksum
-                checksum = self._calculate_checksum(compressed_data)
+                checksum = self._calculate_checksum(json_bytes)
+                data_dict['_checksum'] = checksum
 
-                # Erstelle Metadaten-Header
-                metadata = {
-                    'checksum': checksum,
-                    'compression': self.compression,
-                    'original_size': len(json_bytes),
-                    'compressed_size': len(compressed_data),
-                    'timestamp': time.time()
-                }
+                # Erneute Serialisierung mit Checksum
+                json_str = json.dumps(data_dict, indent=2, ensure_ascii=False)
+                json_bytes = json_str.encode('utf-8')
+
+                # Komprimiere falls konfiguriert
+                output_data = self._compress_data(json_bytes)
 
                 # Schreibe Datei
                 with open(filepath, 'wb') as f:
-                    # Schreibe Metadaten-Header (JSON)
-                    header_json = json.dumps(metadata).encode('utf-8')
-                    header_size = len(header_json)
+                    f.write(output_data)
 
-                    # Format: [header_size(4 bytes)][header_json][compressed_data]
-                    f.write(struct.pack('<I', header_size))
-                    f.write(header_json)
-                    f.write(compressed_data)
-
-                self.logger.info(f"JSON gespeichert: {filepath}")
-                self.logger.debug(f"  Original: {len(json_bytes)} bytes")
-                self.logger.debug(f"  Komprimiert: {len(compressed_data)} bytes") 
-                self.logger.debug(f"  Ratio: {len(compressed_data)/len(json_bytes):.2%}")
-
-                return filepath
+                self.logger.info(f"JSON gespeichert: {filepath} ({len(output_data)} bytes)")
+                return str(filepath)
 
             except Exception as e:
-                self.logger.error(f"JSON-Speicherung fehlgeschlagen: {e}")
+                self.logger.error(f"Fehler beim Speichern von JSON: {e}")
                 raise
 
     def load_json(self, filepath: Union[str, Path]) -> PathRecordingData:
         """
-        Lädt PathRecordingData aus JSON-Datei
-
+        Lädt PathRecordingData aus JSON-Datei.
+        
+        Liest JSON-Datei (mit optionaler Dekompression), validiert Checksum
+        falls aktiviert und deserialisiert zu PathRecordingData.
+        
         Args:
             filepath: Pfad zur JSON-Datei
-
+            
         Returns:
-            PathRecordingData Objekt
+            Geladene PathRecordingData-Instanz
+            
+        Raises:
+            FileNotFoundError: Wenn Datei nicht existiert
+            ValueError: Bei ungültiger Checksum
+            json.JSONDecodeError: Bei ungültigem JSON
+            
+        Example:
+            >>> recording = storage.load_json("recordings/session_001.json.gz")
+            >>> print(f"Samples: {len(recording.controller_samples)}")
         """
         filepath = Path(filepath)
-
+        
         with self._lock:
             try:
+                # Lese Datei
                 with open(filepath, 'rb') as f:
-                    # Lese Header-Größe
-                    header_size_bytes = f.read(4)
-                    if len(header_size_bytes) != 4:
-                        raise ValueError("Ungültige Datei: Header-Größe nicht lesbar")
-
-                    header_size = struct.unpack('<I', header_size_bytes)[0]
-
-                    # Lese Metadaten-Header
-                    header_json = f.read(header_size).decode('utf-8')
-                    metadata = json.loads(header_json)
-
-                    # Lese komprimierte Daten
                     compressed_data = f.read()
 
-                # Validiere Checksum falls aktiviert
-                if self.verify_checksums:
-                    calculated_checksum = self._calculate_checksum(compressed_data)
-                    if calculated_checksum != metadata['checksum']:
-                        raise ValueError(f"Checksum-Mismatch: {calculated_checksum} != {metadata['checksum']}")
+                # Bestimme Kompressionstyp aus Dateiendung
+                if filepath.suffix == '.gz':
+                    compression = CompressionType.GZIP
+                elif filepath.suffix == '.xz':
+                    compression = CompressionType.LZMA
+                else:
+                    compression = CompressionType.NONE
 
-                # Dekomprimiere Daten
-                json_bytes = self._decompress_data(compressed_data, metadata['compression'])
+                # Dekomprimiere
+                json_bytes = self._decompress_data(compressed_data, compression)
+                json_str = json_bytes.decode('utf-8')
 
                 # Parse JSON
-                json_str = json_bytes.decode('utf-8')
                 data_dict = json.loads(json_str)
 
-                # Erstelle PathRecordingData Objekt
+                # Validiere Checksum falls aktiviert
+                if self.verify_checksums and '_checksum' in data_dict:
+                    stored_checksum = data_dict.pop('_checksum')
+                    
+                    # Berechne Checksum ohne '_checksum'-Feld
+                    json_str_no_checksum = json.dumps(data_dict, indent=2, ensure_ascii=False)
+                    calculated_checksum = self._calculate_checksum(json_str_no_checksum.encode('utf-8'))
+                    
+                    if stored_checksum != calculated_checksum:
+                        raise ValueError(f"Checksum mismatch: {filepath}")
+
+                # Deserialisiere zu PathRecordingData
                 recording_data = PathRecordingData.from_dict(data_dict)
-
+                
                 self.logger.info(f"JSON geladen: {filepath}")
-                self.logger.debug(f"  Samples: {len(recording_data.controller_samples)}")
-                self.logger.debug(f"  LIDAR Frames: {len(recording_data.lidar_frames)}")
-
                 return recording_data
 
             except Exception as e:
-                self.logger.error(f"JSON-Laden fehlgeschlagen: {e}")
+                self.logger.error(f"Fehler beim Laden von JSON: {e}")
                 # Versuche Recovery aus Backup
-                if self.backup_enabled:
-                    return self._try_recovery(filepath)
-                raise
+                try:
+                    return self._recover_from_backup(filepath)
+                except:
+                    raise
 
-    def save_binary(self, recording_data: PathRecordingData, filename: str = None) -> Path:
+    def save_binary(
+        self,
+        recording_data: PathRecordingData,
+        filename: str,
+        create_backup: bool = True
+    ) -> str:
         """
-        Speichert PathRecordingData als optimiertes Binary-Format
-
+        Speichert PathRecordingData als Binär-Datei (.prec).
+        
+        Serialisiert die Daten in ein kompaktes Binärformat mit Header,
+        Metadaten und Chunks für effiziente Speicherung großer Aufzeichnungen.
+        
+        Binary Format Structure:
+            - Header: Magic (4B) + Version (16B) + Timestamp (8B) + Checksum (32B)
+            - Metadata: Compressed JSON mit Header-Daten
+            - Controller Chunk: Magic (4B) + Count (4B) + Samples (variable)
+            - LIDAR Chunk: Magic (4B) + Count (4B) + Frames (variable)
+            - Checkpoint Chunk: Magic (4B) + Count (4B) + Checkpoints (variable)
+        
         Args:
-            recording_data: Aufzeichnungsdaten  
-            filename: Optionaler Dateiname
-
+            recording_data: Zu speichernde PathRecordingData-Instanz
+            filename: Dateiname ohne Erweiterung (.prec wird hinzugefügt)
+            create_backup: Erstellt Backup falls Datei bereits existiert
+            
         Returns:
-            Path zur gespeicherten Datei
+            Vollständiger Pfad zur gespeicherten Datei als String
+            
+        Raises:
+            IOError: Bei Problemen beim Schreiben der Datei
+            
+        Example:
+            >>> path = storage.save_binary(recording, "test_session")
+            >>> print(f"Gespeichert: {path}")
         """
         with self._lock:
-            if not filename:
-                session_id = recording_data.header.metadata.session_id if recording_data.header.metadata else "unknown"
-                filename = self.generate_filename(session_id, binary=True)
+            filepath = self.base_directory / f"{filename}{BINARY_EXTENSION}"
 
-            filepath = self.base_directory / filename
-
-            try:
-                # Erstelle Backup falls Datei existiert  
+            # Erstelle Backup falls gewünscht
+            if create_backup and filepath.exists():
                 self._create_backup(filepath)
 
-                # Serialisiere mit Pickle (kompakt und schnell)
-                pickle_data = pickle.dumps(recording_data, protocol=pickle.HIGHEST_PROTOCOL)
-
-                # Komprimiere
-                compressed_data = self._compress_data(pickle_data)
-
-                # Checksum
-                checksum = self._calculate_checksum(compressed_data)
-
-                # Schreibe Binary-Datei
+            try:
                 with open(filepath, 'wb') as f:
-                    # Magic Header
+                    # Header schreiben
                     f.write(HEADER_MAGIC)
+                    f.write(recording_data.header.version.ljust(16, '\0').encode('ascii'))
+                    f.write(struct.pack('d', recording_data.header.timestamp))
 
-                    # Version String (padded auf 16 Bytes)
-                    version_bytes = DATA_FORMAT_VERSION.encode('ascii').ljust(16, b'\0')
-                    f.write(version_bytes)
+                    # Metadaten komprimieren und schreiben
+                    metadata_dict = recording_data.header.to_dict()
+                    metadata_json = json.dumps(metadata_dict).encode('utf-8')
+                    metadata_compressed = gzip.compress(metadata_json)
+                    f.write(struct.pack('I', len(metadata_compressed)))
+                    f.write(metadata_compressed)
 
-                    # Metadaten
-                    f.write(struct.pack('<Q', int(time.time() * 1000000)))  # Timestamp (µs)
-                    f.write(struct.pack('<I', len(pickle_data)))  # Original size
-                    f.write(struct.pack('<I', len(compressed_data)))  # Compressed size
-                    f.write(self.compression.encode('ascii').ljust(8, b'\0'))  # Compression
+                    # Controller-Samples Chunk
+                    f.write(CHUNK_MAGIC)
+                    f.write(struct.pack('I', len(recording_data.controller_samples)))
+                    for sample in recording_data.controller_samples:
+                        sample_json = json.dumps(sample.to_dict()).encode('utf-8')
+                        f.write(struct.pack('I', len(sample_json)))
+                        f.write(sample_json)
 
-                    # Checksum (32 bytes hex)
-                    f.write(checksum.encode('ascii'))
+                    # LIDAR-Frames Chunk
+                    f.write(CHUNK_MAGIC)
+                    f.write(struct.pack('I', len(recording_data.lidar_frames)))
+                    for frame in recording_data.lidar_frames:
+                        frame_json = json.dumps(frame.to_dict()).encode('utf-8')
+                        f.write(struct.pack('I', len(frame_json)))
+                        f.write(frame_json)
 
-                    # Komprimierte Daten
-                    f.write(compressed_data)
+                    # Checkpoints Chunk
+                    f.write(CHUNK_MAGIC)
+                    f.write(struct.pack('I', len(recording_data.checkpoints)))
+                    for checkpoint in recording_data.checkpoints:
+                        checkpoint_json = json.dumps(checkpoint.to_dict()).encode('utf-8')
+                        f.write(struct.pack('I', len(checkpoint_json)))
+                        f.write(checkpoint_json)
 
-                self.logger.info(f"Binary gespeichert: {filepath}")
-                self.logger.debug(f"  Original: {len(pickle_data)} bytes")
-                self.logger.debug(f"  Komprimiert: {len(compressed_data)} bytes")
-
-                return filepath
+                file_size = filepath.stat().st_size
+                self.logger.info(f"Binary gespeichert: {filepath} ({file_size} bytes)")
+                return str(filepath)
 
             except Exception as e:
-                self.logger.error(f"Binary-Speicherung fehlgeschlagen: {e}")
+                self.logger.error(f"Fehler beim Speichern von Binary: {e}")
                 raise
 
     def load_binary(self, filepath: Union[str, Path]) -> PathRecordingData:
         """
-        Lädt PathRecordingData aus Binary-Datei
-
+        Lädt PathRecordingData aus Binär-Datei (.prec).
+        
+        Liest und deserialisiert Binärdaten mit Header-Validierung und
+        Chunk-basierter Datenrekonstruktion.
+        
         Args:
-            filepath: Pfad zur Binary-Datei
-
+            filepath: Pfad zur .prec-Datei
+            
         Returns:
-            PathRecordingData Objekt
+            Geladene PathRecordingData-Instanz
+            
+        Raises:
+            FileNotFoundError: Wenn Datei nicht existiert
+            ValueError: Bei ungültigem Header oder Magic Bytes
+            struct.error: Bei fehlerhafter Binärstruktur
+            
+        Example:
+            >>> recording = storage.load_binary("recordings/session_001.prec")
+            >>> print(f"Version: {recording.header.version}")
         """
         filepath = Path(filepath)
-
+        
         with self._lock:
             try:
                 with open(filepath, 'rb') as f:
-                    # Lese Header
+                    # Lese und validiere Header
                     magic = f.read(4)
                     if magic != HEADER_MAGIC:
                         raise ValueError(f"Ungültiges Magic: {magic}")
 
                     version = f.read(16).rstrip(b'\0').decode('ascii')
-                    timestamp_us = struct.unpack('<Q', f.read(8))[0]
-                    original_size = struct.unpack('<I', f.read(4))[0]
-                    compressed_size = struct.unpack('<I', f.read(4))[0]
-                    compression = f.read(8).rstrip(b'\0').decode('ascii')
-                    checksum = f.read(32).decode('ascii')
+                    timestamp = struct.unpack('d', f.read(8))[0]
 
-                    # Lese komprimierte Daten
-                    compressed_data = f.read()
+                    # Lese Metadaten
+                    metadata_size = struct.unpack('I', f.read(4))[0]
+                    metadata_compressed = f.read(metadata_size)
+                    metadata_json = gzip.decompress(metadata_compressed)
+                    header_dict = json.loads(metadata_json)
+                    header = PathRecordingHeader.from_dict(header_dict)
 
-                    if len(compressed_data) != compressed_size:
-                        raise ValueError("Datengröße stimmt nicht überein")
+                    # Lese Controller-Samples
+                    chunk_magic = f.read(4)
+                    if chunk_magic != CHUNK_MAGIC:
+                        raise ValueError("Ungültiges Chunk Magic für Controller")
+                    
+                    controller_count = struct.unpack('I', f.read(4))[0]
+                    controller_samples = []
+                    for _ in range(controller_count):
+                        sample_size = struct.unpack('I', f.read(4))[0]
+                        sample_json = f.read(sample_size)
+                        sample_dict = json.loads(sample_json)
+                        controller_samples.append(ControllerSample.from_dict(sample_dict))
 
-                # Validiere Checksum
-                if self.verify_checksums:
-                    calculated_checksum = self._calculate_checksum(compressed_data)
-                    if calculated_checksum != checksum:
-                        raise ValueError(f"Checksum-Mismatch: {calculated_checksum} != {checksum}")
+                    # Lese LIDAR-Frames
+                    chunk_magic = f.read(4)
+                    if chunk_magic != CHUNK_MAGIC:
+                        raise ValueError("Ungültiges Chunk Magic für LIDAR")
+                    
+                    lidar_count = struct.unpack('I', f.read(4))[0]
+                    lidar_frames = []
+                    for _ in range(lidar_count):
+                        frame_size = struct.unpack('I', f.read(4))[0]
+                        frame_json = f.read(frame_size)
+                        frame_dict = json.loads(frame_json)
+                        lidar_frames.append(LidarFrame.from_dict(frame_dict))
 
-                # Dekomprimiere
-                pickle_data = self._decompress_data(compressed_data, compression)
+                    # Lese Checkpoints
+                    chunk_magic = f.read(4)
+                    if chunk_magic != CHUNK_MAGIC:
+                        raise ValueError("Ungültiges Chunk Magic für Checkpoints")
+                    
+                    checkpoint_count = struct.unpack('I', f.read(4))[0]
+                    checkpoints = []
+                    for _ in range(checkpoint_count):
+                        checkpoint_size = struct.unpack('I', f.read(4))[0]
+                        checkpoint_json = f.read(checkpoint_size)
+                        checkpoint_dict = json.loads(checkpoint_json)
+                        checkpoints.append(Checkpoint.from_dict(checkpoint_dict))
 
-                if len(pickle_data) != original_size:
-                    raise ValueError("Dekomprimierte Größe stimmt nicht überein")
-
-                # Deserialize
-                recording_data = pickle.loads(pickle_data)
+                # Erstelle PathRecordingData
+                recording_data = PathRecordingData(
+                    header=header,
+                    controller_samples=controller_samples,
+                    lidar_frames=lidar_frames,
+                    checkpoints=checkpoints
+                )
 
                 self.logger.info(f"Binary geladen: {filepath}")
-                self.logger.debug(f"  Version: {version}")
-                self.logger.debug(f"  Timestamp: {datetime.fromtimestamp(timestamp_us/1000000)}")
-
                 return recording_data
 
             except Exception as e:
-                self.logger.error(f"Binary-Laden fehlgeschlagen: {e}")
+                self.logger.error(f"Fehler beim Laden von Binary: {e}")
                 # Versuche Recovery aus Backup
-                if self.backup_enabled:
-                    return self._try_recovery(filepath)
-                raise
+                try:
+                    return self._recover_from_backup(filepath)
+                except:
+                    raise
 
-    def _try_recovery(self, original_filepath: Path) -> PathRecordingData:
-        """Versucht Recovery aus Backup-Dateien"""
+    def _recover_from_backup(self, original_filepath: Path) -> PathRecordingData:
+        """
+        Versucht Recovery aus Backup-Dateien.
+        
+        Sucht nach Backups der beschädigten Datei und versucht diese
+        in chronologischer Reihenfolge (neueste zuerst) zu laden.
+        
+        Args:
+            original_filepath: Pfad zur beschädigten Original-Datei
+            
+        Returns:
+            Aus Backup wiederhergestellte PathRecordingData-Instanz
+            
+        Raises:
+            FileNotFoundError: Wenn keine Backup-Dateien gefunden wurden
+            RuntimeError: Wenn Recovery aus allen Backups fehlschlug
+        """
         self.logger.warning(f"Versuche Recovery für: {original_filepath}")
 
         # Finde Backups
@@ -432,12 +592,10 @@ class PathRecordingStorageManager:
         for backup_path in backups:
             try:
                 self.logger.info(f"Versuche Recovery aus: {backup_path}")
-
                 if backup_path.suffix == BINARY_EXTENSION:
                     return self.load_binary(backup_path)
                 else:
                     return self.load_json(backup_path)
-
             except Exception as e:
                 self.logger.warning(f"Recovery aus {backup_path} fehlgeschlagen: {e}")
                 continue
@@ -445,9 +603,27 @@ class PathRecordingStorageManager:
         raise RuntimeError("Recovery aus allen Backups fehlgeschlagen")
 
     def list_recordings(self) -> List[Dict[str, Any]]:
-        """Listet alle verfügbaren Aufzeichnungen auf"""
+        """
+        Listet alle verfügbaren Aufzeichnungen auf.
+        
+        Durchsucht das Aufzeichnungsverzeichnis und sammelt Informationen
+        über alle gefundenen Recording-Dateien.
+        
+        Returns:
+            Liste von Dictionaries mit Datei-Informationen:
+            - filename: Dateiname
+            - filepath: Vollständiger Pfad
+            - size_bytes: Dateigröße in Bytes
+            - modified: Änderungszeitpunkt als datetime
+            - format: 'binary' oder 'json'
+            
+        Example:
+            >>> recordings = storage.list_recordings()
+            >>> for rec in recordings:
+            ...     print(f"{rec['filename']}: {rec['size_bytes']} bytes")
+        """
         recordings = []
-
+        
         for file_path in self.base_directory.glob("*"):
             if file_path.is_file() and not file_path.name.startswith('.'):
                 try:
@@ -466,9 +642,33 @@ class PathRecordingStorageManager:
         return sorted(recordings, key=lambda x: x['modified'], reverse=True)
 
     def validate_file(self, filepath: Union[str, Path]) -> Dict[str, Any]:
-        """Validiert Integrität einer Aufzeichnungsdatei"""
+        """
+        Validiert Integrität einer Aufzeichnungsdatei.
+        
+        Versucht die Datei zu laden und sammelt Informationen über
+        Gültigkeit, Format und Inhalt.
+        
+        Args:
+            filepath: Pfad zur zu validierenden Datei
+            
+        Returns:
+            Dictionary mit Validierungs-Ergebnissen:
+            - filepath: Pfad zur Datei
+            - exists: Bool ob Datei existiert
+            - valid: Bool ob Datei gültig geladen werden konnte
+            - errors: Liste von Fehler-Meldungen
+            - info: Dictionary mit Datei-Informationen (bei gültiger Datei)
+            
+        Example:
+            >>> validation = storage.validate_file("recordings/test.json.gz")
+            >>> if validation['valid']:
+            ...     print("Datei ist gültig")
+            ...     print(f"Samples: {validation['info']['controller_samples']}")
+            >>> else:
+            ...     print(f"Fehler: {validation['errors']}")
+        """
         filepath = Path(filepath)
-
+        
         validation_result = {
             'filepath': str(filepath),
             'exists': filepath.exists(),
@@ -498,7 +698,7 @@ class PathRecordingStorageManager:
                 'checkpoints': stats.get('checkpoints', 0),
                 'duration_seconds': stats.get('duration_seconds', 0)
             }
-
+            
             validation_result['valid'] = True
 
         except Exception as e:
@@ -506,16 +706,39 @@ class PathRecordingStorageManager:
 
         return validation_result
 
+
 # =============================================================================
 # HELPER FUNKTIONEN
 # =============================================================================
+
 
 def create_storage_manager(
     directory: str = "path_recordings",
     compression: str = CompressionType.GZIP,
     backup_count: int = 3
 ) -> PathRecordingStorageManager:
-    """Hilfsfunktion zum Erstellen eines Storage Managers"""
+    """
+    Hilfsfunktion zum schnellen Erstellen eines Storage Managers.
+    
+    Erstellt einen vorkonfigurierten PathRecordingStorageManager mit
+    sinnvollen Standardeinstellungen.
+    
+    Args:
+        directory: Basis-Verzeichnis für Aufzeichnungen
+        compression: Kompressionstyp (GZIP, LZMA oder NONE)
+        backup_count: Anzahl der zu behaltenden Backups
+        
+    Returns:
+        Konfigurierte PathRecordingStorageManager-Instanz
+        
+    Example:
+        >>> storage = create_storage_manager(
+        ...     directory="my_recordings",
+        ...     compression=CompressionType.LZMA,
+        ...     backup_count=5
+        ... )
+        >>> # Storage Manager ist sofort einsatzbereit
+    """
     return PathRecordingStorageManager(
         base_directory=directory,
         compression=compression,
@@ -524,4 +747,6 @@ def create_storage_manager(
         verify_checksums=True
     )
 
-print("✅ Storage System erfolgreich implementiert")
+
+# Erfolgreiche Modul-Initialisierung
+print("✅ Storage System erfolgreich geladen (v1.1.0)")

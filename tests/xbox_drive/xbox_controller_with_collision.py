@@ -116,7 +116,7 @@ PWM_CHANNEL_LEFT = 0          # Hardware PWM Kanal 0 → GPIO18
 PWM_CHANNEL_RIGHT = 1         # Hardware PWM Kanal 1 → GPIO19
 
 # Motor Geschwindigkeitsparameter
-MAX_DUTY_CYCLE = 12.0         # Maximum PWM Duty Cycle in % (wie im Original)
+MAX_DUTY_CYCLE = 10.0         # Maximum PWM Duty Cycle in % (wie im Original)
 MIN_DUTY_CYCLE = 0.0          # Minimum PWM Duty Cycle in % (Motor aus)
 
 # Controller Konfiguration

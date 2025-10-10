@@ -1,145 +1,119 @@
 #!/usr/bin/env python3
-# RPLIDAR C1 Output-Tester (Raspberry Pi 5) – robuste Verbindung, Health-Check, CSV, Metriken
-# Installation: pip install rplidar-roboticia
-# C1: UART 460800 8N1 (USB/UART-Adapter), typische ~10 Hz, ~5000 Messungen/s, 12 m Reichweite
+
+"""
+RPLIDAR C1 Robuster Test mit 2D-Visualisierung
+Installation: pip install rplidar-roboticia matplotlib numpy
+"""
 
 import argparse
-import csv
-import statistics
 import sys
 import time
-from datetime import datetime
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+from rplidar import RPLidar, RPLidarException
 
-from rplidar import RPLidar, RPLidarException  # aus rplidar-roboticia
 
-def human_time(ts: float) -> str:
-    return datetime.fromtimestamp(ts).isoformat(timespec='milliseconds')
-
-def connect_lidar(port: str, baud: int, timeout: float, retries: int = 1, pause: float = 0.8) -> RPLidar:
+def reset_lidar_connection(port: str, baud: int, timeout: float) -> RPLidar:
     """
-    Stellt die Verbindung her und versucht bei Deskriptor-/Sync-Fehlern einmalig einen Reconnect.
+    Hard-Reset der LIDAR-Verbindung mit vollständigem Cleanup.
+    Behebt 'Descriptor length mismatch' durch Buffer-Clear.
     """
-    attempt = 0
-    last_exc = None
-    while attempt <= retries:
-        try:
-            lidar = RPLidar(port, baudrate=baud, timeout=timeout)
-            # get_info() triggert den Descriptor-/Header-Handshake und validiert die Session
-            _ = lidar.get_info()
-            return lidar
-        except RPLidarException as e:
-            last_exc = e
-            # sauber schließen, kurze Pause, Retry
-            try:
-                if 'lidar' in locals() and lidar:
-                    try:
-                        lidar.stop()
-                    except Exception:
-                        pass
-                    try:
-                        lidar.stop_motor()
-                    except Exception:
-                        pass
-                    lidar.disconnect()
-            except Exception:
-                pass
-            if attempt < retries:
-                time.sleep(pause)
-            attempt += 1
-    raise last_exc if last_exc else RuntimeError('Verbindungsfehler ohne detaillierte Exception')
-
-def main():
-    ap = argparse.ArgumentParser(description='RPLIDAR C1 Output-Tester (CSV + Metriken, robust)')
-    ap.add_argument('--port', default='/dev/ttyUSB0', help='Serieller Port (z.B. /dev/ttyUSB0)')
-    ap.add_argument('--baud', type=int, default=460800, help='Baudrate (C1: 460800)')
-    ap.add_argument('--timeout', type=float, default=1.0, help='Serielle Timeout-Sekunden')
-    ap.add_argument('--scans', type=int, default=10, help='Anzahl kompletter Scans (Umdrehungen)')
-    ap.add_argument('--duration', type=float, default=0.0, help='Alternative: Dauer in Sekunden statt fester Scananzahl')
-    ap.add_argument('--csv', default='rplidar_c1_test.csv', help='CSV-Ausgabe-Datei')
-    ap.add_argument('--max-buf-meas', type=int, default=5000, help='Bufferlimit für iter_scans()')
-    ap.add_argument('--min-len', type=int, default=5, help='Mindestanzahl Messpunkte pro Scan (iter_scans)')
-    args = ap.parse_args()
-
     lidar = None
-    csv_file = None
-    writer = None
-
-    total_points = 0
-    valid_points = 0
-    zero_points = 0
-    distances_mm = []
-    qualities = []
-    angle_min = 360.0
-    angle_max = 0.0
-    scans_timestamps = []
-    per_scan_counts = []
-
     try:
-        print(f'Öffne LIDAR auf {args.port} @ {args.baud} Baud...')
-        lidar = connect_lidar(args.port, args.baud, args.timeout, retries=1, pause=0.8)
-
+        # Erste Verbindung zum Cleanup
+        print(f"Initialisiere LIDAR auf {port} @ {baud} Baud...")
+        lidar = RPLidar(port, baudrate=baud, timeout=timeout)
+        
+        # Explizit stoppen und Motor ausschalten
+        try:
+            lidar.stop()
+            time.sleep(0.3)
+        except Exception:
+            pass
+            
+        try:
+            lidar.stop_motor()
+            time.sleep(0.3)
+        except Exception:
+            pass
+            
+        # Verbindung trennen für Buffer-Reset
+        lidar.disconnect()
+        lidar = None
+        time.sleep(1.0)  # Hardware-Zeit für Reset
+        
+        # Neue saubere Verbindung
+        print("Stelle neue Verbindung her...")
+        lidar = RPLidar(port, baudrate=baud, timeout=timeout)
+        
+        # Geräteinfo abrufen (validiert Connection)
         info = lidar.get_info()
-        print('Geräteinfo:', info)
+        print(f"Geräteinfo: {info}")
+        
         health = lidar.get_health()
-        print('Health:', health)
+        print(f"Health: {health}")
+        
         status = health[0] if isinstance(health, tuple) else health.get('status', 'Unknown')
         if status == 'Error':
-            print('Gerät meldet Fehlerzustand – bitte prüfen/neu starten.')
-            return 2
+            raise RuntimeError('Gerät meldet Fehlerzustand')
+        
+        return lidar
+        
+    except Exception as e:
+        if lidar:
+            try:
+                lidar.disconnect()
+            except Exception:
+                pass
+        raise e
 
-        # Motorstart (bei C1 oft automatisch, Aufruf schadet nicht)
-        try:
-            lidar.start_motor()
-        except Exception as e:
-            print(f'Warnung: start_motor() nicht notwendig/fehlgeschlagen: {e}')
 
-        time.sleep(0.4)
-
-        # CSV
-        csv_file = open(args.csv, 'w', newline='')
-        writer = csv.writer(csv_file)
-        writer.writerow(['ts_iso', 'ts_epoch', 'scan_idx', 'point_idx', 'angle_deg', 'distance_mm', 'quality'])
-
-        print('Starte Scans...')
-        start_time = time.time()
-        # FIX: korrekter Parametername ohne Tippfehler
-        iterator = lidar.iter_scans(max_buf_meas=args.max_buf_meas, min_len=args.min_len)
-
-        scan_idx = 0
-        while True:
-            t0 = time.time()
-            scan = next(iterator)
-            t1 = time.time()
-
-            scans_timestamps.append(t1)
-            per_scan_counts.append(len(scan))
-
-            for p_idx, (quality, angle, distance) in enumerate(scan):
-                total_points += 1
-                if distance > 0:
-                    valid_points += 1
-                    distances_mm.append(distance)
-                    qualities.append(quality)
-                    if angle < angle_min:
-                        angle_min = angle
-                    if angle > angle_max:
-                        angle_max = angle
-                else:
-                    zero_points += 1
-
-                writer.writerow([human_time(t1), f'{t1:.6f}', scan_idx, p_idx, f'{angle:.3f}', int(distance), int(quality)])
-
-            print(f'Scan {scan_idx}: {len(scan)} Punkte in {(t1 - t0)*1000:.1f} ms')
-            scan_idx += 1
-
-            if args.duration > 0.0:
-                if (time.time() - start_time) >= args.duration:
-                    break
-            else:
-                if scan_idx >= args.scans:
-                    break
-
-        print('Stoppe LIDAR...')
+def collect_scan_data(lidar: RPLidar, num_scans: int = 5, max_buf: int = 5000):
+    """
+    Sammelt mehrere Scans und gibt aggregierte Polar-Daten zurück.
+    """
+    print(f"\nStarte Motor und warte auf Stabilisierung...")
+    
+    try:
+        lidar.start_motor()
+        time.sleep(2.0)  # Längere Wartezeit für Motor-Stabilisierung
+    except Exception as e:
+        print(f"Warnung: start_motor() - {e}")
+    
+    all_angles = []
+    all_distances = []
+    
+    print(f"Sammle {num_scans} Scans...")
+    
+    try:
+        iterator = lidar.iter_scans(max_buf_meas=max_buf, min_len=10)
+        
+        for scan_idx in range(num_scans):
+            try:
+                scan = next(iterator)
+                points = len(scan)
+                valid = sum(1 for _, _, d in scan if d > 0)
+                
+                print(f"  Scan {scan_idx + 1}/{num_scans}: {points} Punkte ({valid} gültig)")
+                
+                for quality, angle, distance in scan:
+                    if distance > 0:  # Nur gültige Messungen
+                        all_angles.append(angle)
+                        all_distances.append(distance)
+                        
+            except StopIteration:
+                print("Iterator beendet vorzeitig")
+                break
+            except RPLidarException as e:
+                print(f"Scan-Fehler ignoriert: {e}")
+                continue
+                
+    except RPLidarException as e:
+        print(f"Kritischer Scan-Fehler: {e}")
+        raise
+    finally:
+        print("\nStoppe LIDAR...")
         try:
             lidar.stop()
         except Exception:
@@ -148,51 +122,152 @@ def main():
             lidar.stop_motor()
         except Exception:
             pass
+    
+    return np.array(all_angles), np.array(all_distances)
 
-        elapsed = time.time() - start_time
-        scans_done = len(per_scan_counts)
-        scans_per_sec = (scans_done / elapsed) if elapsed > 0 else 0.0
-        rpm = scans_per_sec * 60.0
 
-        print('\n=== Zusammenfassung ===')
-        print(f'Umdrehungen (Scans): {scans_done}')
-        print(f'Gesamtpunkte: {total_points}')
-        print(f'Gültige Punkte (>0 mm): {valid_points}')
-        print(f'Ungültige Punkte (0 mm): {zero_points}')
-        if distances_mm:
-            print(f'Distanz mm: min={min(distances_mm)}, max={max(distances_mm)}, mean={int(statistics.fmean(distances_mm))}')
-        if qualities:
-            print(f'Qualität: min={min(qualities)}, max={max(qualities)}, mean={int(statistics.fmean(qualities))}')
-        print(f'Winkelabdeckung je Scan (global beobachtet): {angle_min:.2f}° .. {angle_max:.2f}°')
-        print(f'Durchschnittliche Punkte/Scan: {int(statistics.fmean(per_scan_counts)) if per_scan_counts else 0}')
-        print(f'Scanrate: {scans_per_sec:.2f} Hz  (≈ {rpm:.0f} RPM)')
-        print(f'\nCSV geschrieben: {args.csv}')
-
-    except RPLidarException as e:
-        print(f'RPLidarException: {e}', file=sys.stderr)
-        return 1
-    except KeyboardInterrupt:
-        print('Abgebrochen.')
+def create_2d_map(angles, distances, output_file='lidar_map_2d.png'):
+    """
+    Erstellt eine 2D-Polar-Plot-Karte aus LIDAR-Daten.
+    """
+    if len(angles) == 0:
+        print("Keine Daten für Visualisierung vorhanden!")
+        return
+    
+    print(f"\nErstelle 2D-Karte mit {len(angles)} Messpunkten...")
+    
+    # Konvertiere zu Radians für Polar-Plot
+    angles_rad = np.deg2rad(angles)
+    
+    # Erstelle Figure mit zwei Subplots
+    fig = plt.figure(figsize=(16, 7))
+    
+    # Subplot 1: Polar Plot (traditionelle LIDAR-Ansicht)
+    ax1 = fig.add_subplot(121, projection='polar')
+    ax1.scatter(angles_rad, distances, c=distances, cmap='jet', s=1, alpha=0.6)
+    ax1.set_theta_zero_location('N')
+    ax1.set_theta_direction(-1)
+    ax1.set_ylim(0, max(distances) * 1.1)
+    ax1.set_title('RPLIDAR C1 - Polar View', pad=20, fontsize=14, fontweight='bold')
+    ax1.grid(True, alpha=0.3)
+    
+    # Subplot 2: Kartesische 2D-Karte (Top-Down View)
+    ax2 = fig.add_subplot(122)
+    
+    # Konvertiere Polar zu Kartesisch (LIDAR im Zentrum)
+    x = distances * np.cos(angles_rad)
+    y = distances * np.sin(angles_rad)
+    
+    scatter = ax2.scatter(x, y, c=distances, cmap='jet', s=1, alpha=0.6)
+    ax2.plot(0, 0, 'r+', markersize=15, markeredgewidth=2)  # LIDAR-Position
+    ax2.set_xlabel('X [mm]', fontsize=12)
+    ax2.set_ylabel('Y [mm]', fontsize=12)
+    ax2.set_title('RPLIDAR C1 - Top-Down Map', fontsize=14, fontweight='bold')
+    ax2.grid(True, alpha=0.3)
+    ax2.axis('equal')
+    
+    # Colorbar
+    cbar = plt.colorbar(scatter, ax=ax2, label='Distanz [mm]')
+    
+    # Statistik-Text
+    stats_text = (
+        f"Messpunkte: {len(angles)}\n"
+        f"Distanz: {distances.min():.0f} - {distances.max():.0f} mm\n"
+        f"Mittelwert: {distances.mean():.0f} mm"
+    )
+    ax2.text(0.02, 0.98, stats_text, transform=ax2.transAxes,
+             fontsize=10, verticalalignment='top',
+             bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+    
+    plt.tight_layout()
+    plt.savefig(output_file, dpi=150, bbox_inches='tight')
+    print(f"2D-Karte gespeichert: {output_file}")
+    
+    # Optional: Anzeigen (nur wenn Display verfügbar)
+    try:
+        plt.show(block=False)
+        plt.pause(3)
+    except Exception:
+        print("Kein Display verfügbar - nur Datei gespeichert")
     finally:
-        try:
-            if lidar:
-                try:
-                    lidar.stop()
-                except Exception:
-                    pass
-                try:
-                    lidar.stop_motor()
-                except Exception:
-                    pass
+        plt.close()
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='RPLIDAR C1 Robuster Test mit 2D-Visualisierung'
+    )
+    parser.add_argument('--port', default='/dev/ttyUSB0',
+                        help='Serieller Port')
+    parser.add_argument('--baud', type=int, default=460800,
+                        help='Baudrate (C1: 460800)')
+    parser.add_argument('--timeout', type=float, default=2.0,
+                        help='Timeout in Sekunden')
+    parser.add_argument('--scans', type=int, default=10,
+                        help='Anzahl Scans für Karte')
+    parser.add_argument('--output', default='lidar_map_2d.png',
+                        help='Output-Datei für 2D-Karte')
+    parser.add_argument('--max-buf', type=int, default=5000,
+                        help='Buffer-Limit für iter_scans')
+    
+    args = parser.parse_args()
+    
+    lidar = None
+    
+    try:
+        # Robuste Verbindung mit Reset
+        lidar = reset_lidar_connection(args.port, args.baud, args.timeout)
+        
+        # Daten sammeln
+        angles, distances = collect_scan_data(lidar, args.scans, args.max_buf)
+        
+        if len(angles) == 0:
+            print("\nKeine gültigen Daten erfasst!")
+            return 1
+        
+        # 2D-Karte erstellen
+        create_2d_map(angles, distances, args.output)
+        
+        print("\n=== Erfolgreich abgeschlossen ===")
+        print(f"Gesamte Messpunkte: {len(angles)}")
+        print(f"Distanzbereich: {distances.min():.0f} - {distances.max():.0f} mm")
+        print(f"Karte gespeichert: {args.output}")
+        
+        return 0
+        
+    except RPLidarException as e:
+        print(f"\nRPLidarException: {e}", file=sys.stderr)
+        print("\nFehlerbehebung:", file=sys.stderr)
+        print("1. LIDAR physisch trennen und neu verbinden", file=sys.stderr)
+        print("2. Anderen USB-Port versuchen", file=sys.stderr)
+        print("3. Timeout erhöhen: --timeout 3.0", file=sys.stderr)
+        return 1
+        
+    except KeyboardInterrupt:
+        print("\nAbgebrochen durch Benutzer")
+        return 130
+        
+    except Exception as e:
+        print(f"\nFehler: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        return 1
+        
+    finally:
+        if lidar:
+            try:
+                lidar.stop()
+            except Exception:
+                pass
+            try:
+                lidar.stop_motor()
+            except Exception:
+                pass
+            try:
                 lidar.disconnect()
-        except Exception:
-            pass
-        try:
-            if csv_file:
-                csv_file.flush()
-                csv_file.close()
-        except Exception:
-            pass
+            except Exception:
+                pass
+
 
 if __name__ == '__main__':
     sys.exit(main())

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Path Recording System - Phase 1: Datenstruktur und Speichersystem
-=================================================================
+Path Recording System - Phase 1: Datenstruktur und Speichersystem (KORRIGIERT)
+==============================================================================
 
 Robuste Datenaufzeichnung für Controller-Eingaben und LIDAR-Scans mit:
 - Zeitstempel-basierte Datenstruktur (10-50Hz Controller, 2-5Hz LIDAR)  
@@ -10,8 +10,9 @@ Robuste Datenaufzeichnung für Controller-Eingaben und LIDAR-Scans mit:
 - Metadaten-Verwaltung und Backup-Mechanismen
 - Checksum-Validierung und Recovery-Funktionen
 
-Version: 1.0
+Version: 1.0.1 (BUGFIX)
 Datum: 2025-10-10
+FIXES: LidarFrame quality_metrics default_factory Problem
 """
 
 import json
@@ -34,7 +35,7 @@ import logging
 # =============================================================================
 
 # Versionierung
-DATA_FORMAT_VERSION = "1.0.0"
+DATA_FORMAT_VERSION = "1.0.1"
 HEADER_MAGIC = b'PREC'  # Path RECording magic bytes
 CHUNK_MAGIC = b'CHNK'   # Chunk magic bytes
 
@@ -90,11 +91,11 @@ class LidarFrame:
     """Einzelner LIDAR-Scan mit Quality-Metriken"""
     timestamp: float  # Unix timestamp
     scan_data: List[Tuple[float, float, float]]  # [(quality, angle, distance), ...]
-    quality_metrics: Dict[str, float]  # Qualitätsindikatoren
+    quality_metrics: Dict[str, float] = field(default_factory=dict)  # Qualitätsindikatoren - KORRIGIERT!
     frame_id: int = 0  # Fortlaufende Frame-Nummer
 
     def __post_init__(self):
-        """Berechne Quality-Metriken automatisch falls leer"""
+        """Berechne Quality-Metriken automatisch falls leer - KORRIGIERT!"""
         if not self.quality_metrics and self.scan_data:
             self.quality_metrics = self._calculate_quality_metrics()
 
@@ -337,4 +338,4 @@ def setup_logging(log_file: str = "path_recording.log") -> logging.Logger:
 
     return logger
 
-print("✅ Datenstrukturen erfolgreich definiert")
+print("✅ KORRIGIERTE Datenstrukturen erfolgreich definiert (v1.0.1)")

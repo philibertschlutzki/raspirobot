@@ -102,7 +102,7 @@ TRIG_RIGHT = 23   # Trigger Pin rechter Sensor
 ECHO_RIGHT = 24   # Echo Pin rechter Sensor
 
 # Kollisionsparameter
-COLLISION_DISTANCE_CM = 10.0  # Minimaler Sicherheitsabstand in cm
+COLLISION_DISTANCE_CM = 30.0  # Minimaler Sicherheitsabstand in cm
 SOUND_SPEED = 34300           # Schallgeschwindigkeit in cm/s bei 20°C
 
 # Motor PWM Konfiguration
@@ -608,7 +608,7 @@ def control_loop():
 
         # 2. Konvertiere Trigger zu Duty Cycle
         left_duty = trigger_to_duty_cycle(trigger_left)
-        right_duty = trigger_to_duty_cycle(right_duty)
+        right_duty = trigger_to_duty_cycle(trigger_right)
 
         # 3. Setze Motor Geschwindigkeit (mit Kollisionsvermeidung)
         set_motor_speed(left_duty, right_duty)

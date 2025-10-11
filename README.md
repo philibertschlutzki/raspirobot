@@ -1,11 +1,3 @@
-<img src="https://r2cdn.perplexity.ai/pplx-full-logo-primary-dark%402x.png" style="height:64px;margin-right:32px"/>
-
-# Analyisere den Code unter [https://github.com/philibertschlutzki/raspirobot](https://github.com/philibertschlutzki/raspirobot) Erstelle ein neues Readme.md für [https://github.com/philibertschlutzki/raspirobot/blob/main/README.md](https://github.com/philibertschlutzki/raspirobot/blob/main/README.md)
-
-Ignoriere die bisherigen Inhalte von [https://github.com/philibertschlutzki/raspirobot/blob/main/README.md](https://github.com/philibertschlutzki/raspirobot/blob/main/README.md)
-
-Basierend auf der Analyse des Repository-Codes erstelle ich ein neues, professionelles README.md für das RaspiRobot Projekt :[^1]
-
 # RaspiRobot 🤖
 
 Ein vollständiges Robotersystem basierend auf **Raspberry Pi 5** mit LIDAR-Mapping, Xbox Controller-Steuerung und intelligenter Sensorfusion für autonome Navigation und Pfadaufzeichnung.

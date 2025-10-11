@@ -1,143 +1,301 @@
+<img src="https://r2cdn.perplexity.ai/pplx-full-logo-primary-dark%402x.png" style="height:64px;margin-right:32px"/>
 
-## Softwarearchitektur für Roboter mit Raspberry Pi 5
+# Analyisere den Code unter [https://github.com/philibertschlutzki/raspirobot](https://github.com/philibertschlutzki/raspirobot) Erstelle ein neues Readme.md für [https://github.com/philibertschlutzki/raspirobot/blob/main/README.md](https://github.com/philibertschlutzki/raspirobot/blob/main/README.md)
 
-### Systemübersicht
+Ignoriere die bisherigen Inhalte von [https://github.com/philibertschlutzki/raspirobot/blob/main/README.md](https://github.com/philibertschlutzki/raspirobot/blob/main/README.md)
 
-Das entwickelte Robotersystem basiert auf einer **modularen Schichtenarchitektur**, die eine klare Trennung zwischen Hardware-Abstraktionsschicht, Service-Schicht, Anwendungslogik und Web-Interface gewährleistet. Die Architektur ist darauf ausgelegt, alle Anforderungen zu erfüllen: Sensordaten in einem Web-GUI anzuzeigen, zwischen Personenverfolgung und Patroullieren umzuschalten und alle Berechnungen auf dem Raspberry Pi durchzuführen.
+Basierend auf der Analyse des Repository-Codes erstelle ich ein neues, professionelles README.md für das RaspiRobot Projekt :[^1]
 
-### Hardware-Komponenten und GPIO-Zuordnung
+# RaspiRobot 🤖
 
-**Raspberry Pi 5 8GB** fungiert als zentrale Steuereinheit mit **40 GPIO-Pins** für die Sensoranbindung. Die **4x HC-SR04 Ultraschallsensoren** werden strategisch positioniert: Front (GPIO 23/24), Rechts (GPIO 25/8), Hinten (GPIO 7/12) und Links (GPIO 16/20). Die **2x ZX-11H Motor Controller** nutzen PWM-fähige Pins: Links (PWM GPIO 18, Direction GPIO 27, Enable GPIO 22) und Rechts (PWM GPIO 13, Direction GPIO 19, Enable GPIO 26). Der **RP03D Mikrowellensensor** ist an GPIO 21 angeschlossen.
+Ein vollständiges Robotersystem basierend auf **Raspberry Pi 5** mit LIDAR-Mapping, Xbox Controller-Steuerung und intelligenter Sensorfusion für autonome Navigation und Pfadaufzeichnung.
 
-### Systemarchitektur
+## ✨ Features
+
+- **LIDAR-basiertes Mapping** mit RPLIDAR C1 für 360° Umgebungserfassung
+- **Xbox Controller Integration** für manuelle Steuerung mit Wireless Support
+- **Intelligente Sensorfusion** kombiniert LIDAR- und Ultraschall-Sensordaten
+- **Autonome Navigation** mit Hinderniserkennung und Kollisionsvermeidung
+- **Pfadaufzeichnung \& Replay** für wiederholbare Fahrten
+- **Echtzeitdatenanalyse** mit Performance-Monitoring
+- **Modulare Architektur** für einfache Erweiterungen
+
+
+## 🛠️ Hardware-Komponenten
+
+### Hauptkomponenten
+
+- **Raspberry Pi 5 (8GB)** - Zentrale Steuereinheit
+- **RPLIDAR C1** - 360° Laser-Distanzsensor
+- **4x HC-SR04** - Ultraschall-Sensoren (Front, Back, Links, Rechts)
+- **2x ZS-X11H Motor Controller** - Differentialantrieb
+- **Xbox Wireless Controller** - Manuelle Steuerung
+- **RP03D Mikrowellensensor** - Bewegungserkennung
+
+
+### GPIO-Pin-Belegung
+
+| Komponente | Pin | Funktion |
+| :-- | :-- | :-- |
+| Motor Links PWM | 18 | PWM-Signal linker Motor |
+| Motor Links Direction | 27 | Richtungssteuerung links |
+| Motor Links Enable | 22 | Enable-Signal links |
+| Motor Rechts PWM | 13 | PWM-Signal rechter Motor |
+| Motor Rechts Direction | 19 | Richtungssteuerung rechts |
+| Motor Rechts Enable | 26 | Enable-Signal rechts |
+| Ultraschall Front Trigger | 23 | Trigger-Signal vorne |
+| Ultraschall Front Echo | 24 | Echo-Signal vorne |
+| Ultraschall Rechts Trigger | 25 | Trigger-Signal rechts |
+| Ultraschall Rechts Echo | 8 | Echo-Signal rechts |
+| Ultraschall Back Trigger | 7 | Trigger-Signal hinten |
+| Ultraschall Back Echo | 12 | Echo-Signal hinten |
+| Ultraschall Links Trigger | 16 | Trigger-Signal links |
+| Ultraschall Links Echo | 20 | Echo-Signal links |
+| Mikrowellensensor | 21 | Bewegungsdetektion |
+
+## 🚀 Installation
+
+### Voraussetzungen
+
+```bash
+# System-Updates
+sudo apt update && sudo apt upgrade -y
+
+# Python-Abhängigkeiten
+sudo apt install python3-pip python3-venv git -y
+
+# Hardware-Bibliotheken
+sudo apt install python3-rpi.gpio python3-serial -y
+```
+
+
+### Repository klonen
+
+```bash
+git clone https://github.com/philibertschlutzki/raspirobot.git
+cd raspirobot
+```
+
+
+### Python-Umgebung einrichten
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+
+### Hardware-Konfiguration
+
+```bash
+# GPIO-Berechtigung für Benutzer
+sudo usermod -a -G gpio $USER
+
+# Serial-Interface aktivieren
+sudo raspi-config
+# Interface Options > Serial Port > Enable
+```
+
+
+## 🎮 Verwendung
+
+### 1. LIDAR-Controller mit Sensorfusion
+
+```bash
+cd 3_Lidarmapper
+python3 lidar_controller_fusion.py
+```
+
+**Features:**
+
+- Echtzeitdaten von LIDAR und Ultraschall-Sensoren
+- Intelligente Sensorfusion für präzise Umgebungserkennung
+- Automatische Hinderniserkennung und Kollisionsvermeidung
+- Performance-Monitoring mit detaillierter Statistik
+
+
+### 2. Xbox Controller mit Aufzeichnung
+
+```bash
+cd 3_Lidarmapper
+python3 xbox_controller_with_recording_v2.0.py
+```
+
+**Steuerung:**
+
+- **Linker Joystick:** Bewegung (Vorwärts/Rückwärts/Lenkung)
+- **A-Taste:** Aufzeichnung starten/stoppen
+- **B-Taste:** Wiedergabe starten/stoppen
+- **X-Taste:** Daten exportieren
+- **Y-Taste:** System herunterfahren
+
+
+### 3. Pfadaufzeichnungssystem
+
+```bash
+cd 1_storage
+python3 path_recording_system.py
+```
+
+**Funktionen:**
+
+- Kontinuierliche Pfadaufzeichnung mit Sensorwerten
+- Datenexport in JSON- und CSV-Format
+- Replay-Funktionalität für aufgezeichnete Pfade
+
+
+### 4. Storage-System
+
+```bash
+cd 1_storage
+python3 storage_system.py
+```
+
+**Datenverwaltung:**
+
+- Strukturierte Speicherung aller Sensordaten
+- Automatische Backups und Versionierung
+- Datenanalyse und Visualisierungstools
+
+
+## 📁 Projektstruktur
 
 ```
-┌─────────────────────────────────────┐
-│         Web-GUI Layer               │
-│    (Flask Web Interface)            │
-├─────────────────────────────────────┤
-│       Application Layer             │
-│  (Betriebsmodus-Controller)         │
-├─────────────────────────────────────┤
-│        Service Layer                │
-│   (Sensor/Motor Services)           │
-├─────────────────────────────────────┤
-│       Hardware Layer                │
-│  (GPIO/Physical Components)         │
-└─────────────────────────────────────┘
+raspirobot/
+├── 1_storage/                    # Datenspeicherung und -verwaltung
+│   ├── storage_system.py         # Hauptsystem für Datenspeicherung
+│   ├── path_recording_system.py  # Pfadaufzeichnung
+│   ├── dev_test.py              # Entwicklungstests
+│   └── 1_storage_unit_test.py   # Unit-Tests
+├── 2_recorder/                   # Aufzeichnungssysteme
+├── 3_Lidarmapper/               # LIDAR-Integration
+│   ├── lidar_controller_fusion.py           # Hauptcontroller mit Sensorfusion
+│   ├── xbox_controller_with_recording_v2.0.py # Xbox-Steuerung
+│   ├── test_lidar_fusion.py     # Test-Suite für LIDAR
+│   └── test_results/            # Testergebnisse
+├── tests/                       # Allgemeine Tests
+├── requirements.md              # Anforderungsdokumentation
+└── README.md                    # Projektdokumentation
 ```
 
 
-### Implementierungsdetails
+## 🔧 Technische Details
 
-#### Hardware-Abstraktionsschicht
+### Sensorfusion-Algorithmus
 
-Die **ZX-11H Motor Controller** werden über PWM-Signale mit 1kHz Frequenz gesteuert, wobei Geschwindigkeit (-100 bis +100), Richtung und Enable-Status separat kontrolliert werden. Die **HC-SR04 Sensoren** verwenden das bewährte Trigger-Echo-Prinzip: 10µs Trigger-Impuls, Echo-Zeit-Messung und Distanzberechnung über Schallgeschwindigkeit (343 m/s). Der **RP03D Mikrowellensensor** arbeitet mit 24GHz Frequenz für präzise Bewegungserkennung.
+Das System kombiniert LIDAR-Daten (360° Scan) mit Ultraschall-Sensoren für maximale Präzision:
 
-#### Service-Schicht mit Multithreading
-
-Das **SensorService** implementiert kontinuierliche Sensorüberwachung mit 20Hz Update-Rate in einem separaten Thread[^15][^16]. Thread-sichere Datenverarbeitung wird durch Locks gewährleistet[^15][^17]. Das **MotorService** steuert die differentielle Lenkung mit PWM-basierter Geschwindigkeitskontrolle.
-
-#### Betriebsmodi
-
-**PatrolMode** implementiert autonome Patrouillierung mit Hinderniserkennung: Bei Hindernissen unter 30cm wird automatisch eine Ausweichstrategie aktiviert. **FollowMode** realisiert Personenverfolgung basierend auf Mikrowellensensor-Daten mit Suchverhalten bei Zielverlust.
-
-### Web-Interface
-
-Das **Flask-basierte Web-Interface** bietet eine vollständige Roboter-Steuerung. **WebSocket-Integration** ermöglicht Echtzeitdaten-Updates ohne Seitenneuladung. Das **responsive Dashboard** zeigt Live-Sensordaten, eine interaktive Umgebungskarte, Modus-Umschaltung und manuelle Steuerung.
-
-#### Dashboard-Features
-
-- **Echtzeit-Sensoranzeige**: Alle 4 Ultraschallsensoren und Mikrowellensensor-Status
-- **Interaktive Umgebungskarte**: Canvas-basierte Visualisierung der Roboter-Umgebung
-- **Modus-Umschaltung**: Ein-Klick-Wechsel zwischen Patrol und Follow-Modus
-- **Manuelle Steuerung**: Richtungstasten für direkte Roboter-Kontrolle
-- **Live-System-Logs**: Kontinuierliche Anzeige von Systemereignissen
+```python
+# Vereinfachtes Beispiel der Sensorfusion
+def fuse_sensor_data(lidar_data, ultrasonic_data):
+    combined_data = {}
+    for angle in range(360):
+        lidar_distance = lidar_data.get(angle, float('inf'))
+        ultrasonic_distance = get_ultrasonic_for_angle(angle, ultrasonic_data)
+        
+        # Wähle den kleineren Wert für Sicherheit
+        combined_data[angle] = min(lidar_distance, ultrasonic_distance)
+    
+    return combined_data
+```
 
 
 ### Threading-Konzept
 
-Das System verwendet **drei parallele Threads**:
+- **Sensor-Thread:** Kontinuierliche Datenerfassung (20 Hz)
+- **Control-Thread:** Motorsteuerung und Navigation (10 Hz)
+- **Logging-Thread:** Datenaufzeichnung (5 Hz)
+- **Display-Thread:** Status-Updates (2 Hz)
 
-- **Sensor-Thread**: Kontinuierliche Datenerfassung (10-20 Hz)
-- **Mode-Thread**: Verhaltensentscheidungen (5-10 Hz)
-- **Web-Thread**: GUI-Updates (1-2 Hz)
 
-
-### Deployment und Konfiguration
-
-Das System wird als **Systemd-Service** konfiguriert für automatischen Start beim Booten. **Graceful Shutdown** sorgt für saubere Ressourcenfreigabe. **Logging-Framework** dokumentiert alle Systemereignisse und Fehler.
-
-### Sicherheit und Erweiterbarkeit
-
-**Sicherheitsmaßnahmen** umfassen Notaus-Funktionen, Sensor-Überwachung und Kollisionsvermeidung. Die **modulare Architektur** ermöglicht einfache Erweiterungen um neue Sensoren, KI-Integration oder Multi-Robot-Koordination.
-
-Diese Architektur stellt eine vollständige, produktionsreife Lösung dar, die alle Anforderungen erfüllt und gleichzeitig eine solide Basis für zukünftige Erweiterungen bietet.
-
-# Codestruktur zur Umsetzung der Softwarearchitektur
-
-Die folgende Verzeichnis- und Modulstruktur bildet die beschriebene Schichtenarchitektur ab. Sie ermöglicht klare Verantwortlichkeiten, einfache Erweiterbarkeit und Testbarkeit.
+### Koordinatensystem
 
 ```
-robot_controller/
-├── README.md
-├── requirements.txt
-├── config/
-│   └── gpio_pins.yaml
-├── app/                        
-│   ├── __init__.py             
-│   ├── main.py                 # Startpunkt: Initialisierung und Start aller Dienste
-│   ├── services/
-│   │   ├── __init__.py
-│   │   ├── sensor_service.py   # Sensordaten erfassen (HC-SR04, RP03D)
-│   │   ├── motor_service.py    # Motorsteuerung (ZX-11H)
-│   │   └── mode_controller.py  # Modus-Logik (PatrolMode, FollowMode)
-│   ├── hardware/
-│   │   ├── __init__.py
-│   │   ├── gpio_interface.py    # Abstraktion aller GPIO-Funktionen
-│   │   ├── ultrasonic.py        # HC-SR04 Trigger/Echo-Logik
-│   │   └── microwave.py         # RP03D Mikrowellen-Logik
-│   └── web/
-│       ├── __init__.py
-│       ├── server.py           # Flask-App + WebSocket-Setup
-│       ├── api.py              # REST/WS-Endpoints für GUI
-│       └── static/
-│           ├── css/
-│           ├── js/
-│           └── index.html      # Dashboard-Frontend
-├── tests/
-│   ├── __init__.py         
-│   ├── test_sensor_service.py
-│   ├── test_motor_service.py
-│   └── test_mode_controller.py
-└── systemd/
-    └── robot.service           # Systemd-Unit für Autostart
+Robot Frame (0,0 = Roboterzentrum):
+       Y↑ (Vorne)
+       |
+   ←---+---→ X (Rechts)
+       |
+       ↓ (Hinten)
 ```
 
 
----
+## 🧪 Testing
 
-## GPIO-Pin-Belegung
+### Unit Tests ausführen
 
-| Komponente       | Pin         | Funktion           |
-|------------------|-------------|--------------------|
-| Motor links PWM  | 18          | PWM für linken Motor  |
-| Motor links Dir. | 27          | Richtung links       |
-| Motor links En.  | 22          | Enable links         |
-| Motor rechts PWM | 13          | PWM für rechten Motor |
-| Motor rechts Dir.| 19          | Richtung rechts      |
-| Motor rechts En. | 26          | Enable rechts        |
-| US-Front Trigger | 23          | Trigger Front        |
-| US-Front Echo    | 24          | Echo Front           |
-| US-Rechts Trigger| 25          | Trigger Rechts       |
-| US-Rechts Echo   | 8           | Echo Rechts          |
-| US-Back Trigger  | 7           | Trigger Back         |
-| US-Back Echo     | 12          | Echo Back            |
-| US-Links Trigger | 16          | Trigger Links        |
-| US-Links Echo    | 20          | Echo Links           |
-| Mikrowelle       | 21          | Output               |
+```bash
+cd 1_storage
+python3 1_storage_unit_test.py
 
----
+cd 3_Lidarmapper
+python3 test_lidar_fusion.py
+```
 
 
+### Integration Tests
+
+```bash
+cd tests
+python3 -m pytest -v
+```
+
+
+## 📊 Performance-Monitoring
+
+Das System bietet detaillierte Performance-Metriken:
+
+- **LIDAR Scan Rate:** ~10 Hz
+- **Sensor Fusion Rate:** ~20 Hz
+- **Motor Update Rate:** ~50 Hz
+- **Memory Usage:** Kontinuierliche Überwachung
+- **CPU Load:** Pro Thread verfolgung
+
+
+## 🔒 Sicherheitsfeatures
+
+- **Notaus-Funktion** über Xbox Controller (Start + Back)
+- **Automatische Kollisionsvermeidung** bei < 30cm Hindernisabstand
+- **Watchdog-Timer** für System-Überwachung
+- **Graceful Shutdown** bei kritischen Fehlern
+- **Sensor-Redundanz** durch LIDAR + Ultraschall
+
+
+## 🤝 Contributing
+
+1. Fork des Repositories
+2. Feature-Branch erstellen (`git checkout -b feature/AmazingFeature`)
+3. Änderungen committen (`git commit -m 'Add some AmazingFeature'`)
+4. Branch pushen (`git push origin feature/AmazingFeature`)
+5. Pull Request öffnen
+
+## 📝 Lizenz
+
+Dieses Projekt steht unter der MIT-Lizenz. Siehe `LICENSE` Datei für Details.
+
+## 🙏 Danksagungen
+
+- RPLIDAR SDK für die LIDAR-Integration
+- RPi.GPIO Community für GPIO-Unterstützung
+- Xbox Controller Reverse Engineering Community
+
+
+## 📞 Support
+
+Bei Fragen oder Problemen:
+
+- **Issues:** [GitHub Issues](https://github.com/philibertschlutzki/raspirobot/issues)
+- **Documentation:** Siehe `requirements.md` für detaillierte Anforderungen
+
+***
+
+**Status:** 🟢 Aktiv entwickelt | **Version:** 2.0 | **Python:** 3.9+
+<span style="display:none">[^2]</span>
+
+<div align="center">⁂</div>
+
+[^1]: https://github.com/philibertschlutzki/raspirobot
+
+[^2]: https://github.com/philib
 

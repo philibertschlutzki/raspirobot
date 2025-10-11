@@ -1,15 +1,3 @@
-<img src="https://r2cdn.perplexity.ai/pplx-full-logo-primary-dark%402x.png" style="height:64px;margin-right:32px"/>
-
-# Analysiere die beiden Scripte, sie sind vollständig funktional und getestet. Das Ziel ist nun ein neues Konzept zu erstellen, wo der Weg welcher mit dem Xbox Controller gesteuert wird, mittels LIDAR Bild gespeichert wird. Danach soll aufgrund der gespeicherten Daten der gleiche Weg autonom gefahren werden.
-
-Erstelle detalliert jeden Entwicklungsschritt mit den entsprechenden Anforderungen an den Code. Achte darauf, dass der Code robust, und fehlertolerant ist. Beschreibe so detailliert wie möglich das Vorgehen und die Requirements. Erstelle keinen Code.
-
-Basierend auf der Analyse Ihrer beiden funktionalen Skripte erstelle ich ein detailliertes Konzept zur Entwicklung eines Systems, das manuelle Fahrwege aufzeichnet und diese anschließend autonom nachfährt. Hier sind die strukturierten Entwicklungsschritte:
-
-## Systemarchitektur und Hauptkomponenten
-
-Das neue System kombiniert die manuelle Xbox-Controller-Steuerung mit der LIDAR-basierten Wegaufzeichnung zu einem robusten **Path Recording \& Autonomous Playback System**.
-
 ### Phase 1: Datenstruktur und Speichersystem
 
 **Ziel:** Entwicklung eines robusten Datenmodells für die Wegaufzeichnung.

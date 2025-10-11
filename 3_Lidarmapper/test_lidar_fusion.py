@@ -16,6 +16,8 @@ Usage:
     python test_lidar_fusion.py [--duration 30] [--export-map]
     python test_lidar_fusion.py --simulate  # Ohne echte Hardware
     python test_lidar_fusion.py --help      # Hilfe anzeigen
+
+Version: 1.0.2 - Korrigierte Typing-Imports
 """
 
 import argparse
@@ -27,6 +29,7 @@ from pathlib import Path
 import numpy as np
 import threading
 import queue
+from typing import Dict, List, Optional, Tuple, Any, Union  # KORREKTUR: Typing-Imports hinzugefügt
 
 # Füge Pfad zum Hauptmodul hinzu
 current_dir = Path(__file__).parent
@@ -39,7 +42,8 @@ try:
         EnvironmentMetadata,
         CollisionLevel,
         LidarFrame,
-        LidarThreadManager
+        LidarThreadManager,
+        LidarProcessingStats  # KORREKTUR: Zusätzlicher Import für bessere Konsistenz
     )
 except ImportError as e:
     print(f"❌ Import-Fehler: {e}")
@@ -69,13 +73,13 @@ class LidarSimulator:
         self.scan_rate_hz = scan_rate_hz
         self.scan_interval = 1.0 / scan_rate_hz
         self._running = False
-        self._scan_queue = queue.Queue(maxsize=50)
-        self._thread = None
+        self._scan_queue: queue.Queue = queue.Queue(maxsize=50)  # KORREKTUR: Typ-Annotation
+        self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
 
         # Simulierte Umgebung (einfacher rechteckiger Raum mit Hindernissen)
         self.room_size = 10.0  # 10x10 Meter Raum
-        self.obstacles = [
+        self.obstacles: List[Dict[str, Any]] = [  # KORREKTUR: Typ-Annotation
             # Wände (als Liniensegmente)
             {"type": "wall", "start": (-5.0, -5.0), "end": (5.0, -5.0)},  # Süd
             {"type": "wall", "start": (5.0, -5.0), "end": (5.0, 5.0)},    # Ost
@@ -186,7 +190,7 @@ class LidarSimulator:
         Returns:
             Liste von (quality, angle_deg, distance_mm) Tupeln
         """
-        scan_data = []
+        scan_data: List[Tuple[float, float, float]] = []  # KORREKTUR: Typ-Annotation
 
         # Generiere 360° Scan mit 1° Auflösung
         for angle_deg in range(0, 360, 1):
@@ -346,8 +350,7 @@ class SimulatedLidarThreadManager:
         self.logger = logger or logging.getLogger(__name__)
         self.simulator = LidarSimulator(scan_rate_hz=10.0)
 
-        # Fake Stats für Kompatibilität
-        from lidar_controller_fusion import LidarProcessingStats
+        # Fake Stats für Kompatibilität - KORREKTUR: Direkte Instanziierung
         self._stats = LidarProcessingStats()
 
     def start(self) -> bool:
@@ -369,7 +372,7 @@ class SimulatedLidarThreadManager:
         self.simulator.stop()
         self.logger.info("LIDAR-Simulation gestoppt")
 
-    def get_latest_scan(self, timeout: float = 0.1):
+    def get_latest_scan(self, timeout: float = 0.1) -> Optional[LidarFrame]:  # KORREKTUR: Return-Type
         """
         Holt den neuesten simulierten Scan.
 
@@ -386,7 +389,7 @@ class SimulatedLidarThreadManager:
             self._stats.buffer_utilization = 0.5   # Fake Wert
         return frame
 
-    def get_stats(self):
+    def get_stats(self) -> LidarProcessingStats:  # KORREKTUR: Return-Type
         """
         Holt Statistiken der Simulation.
 
@@ -427,7 +430,7 @@ def setup_test_logging(log_level: str = "INFO") -> logging.Logger:
     return logging.getLogger(__name__)
 
 
-def test_basic_functionality(fusion_system, logger, duration=10):
+def test_basic_functionality(fusion_system: LidarControllerFusion, logger: logging.Logger, duration: int = 10) -> None:  # KORREKTUR: Typ-Annotations
     """
     Testet Grundfunktionalität des Systems.
 
@@ -459,7 +462,7 @@ def test_basic_functionality(fusion_system, logger, duration=10):
         fusion_system.update_robot_pose(pose)
 
         # Simuliere Ultraschall-Daten (dynamische Werte)
-        ultrasonic_data = {
+        ultrasonic_data: Dict[str, float] = {  # KORREKTUR: Typ-Annotation
             "front": 1.5 + 0.5 * np.sin(t),
             "left": 2.0 + 0.3 * np.cos(t),
             "right": 1.8 + 0.2 * np.sin(t * 1.5),
@@ -467,7 +470,7 @@ def test_basic_functionality(fusion_system, logger, duration=10):
         }
 
         # Simuliere Roboter-Geschwindigkeit
-        robot_velocity = (0.2 * np.sin(t * 0.5), 0.1 * np.cos(t * 0.3))
+        robot_velocity: Tuple[float, float] = (0.2 * np.sin(t * 0.5), 0.1 * np.cos(t * 0.3))  # KORREKTUR: Typ-Annotation
 
         # Verarbeite Frame
         result = fusion_system.process_frame(ultrasonic_data, robot_velocity)
@@ -499,7 +502,7 @@ def test_basic_functionality(fusion_system, logger, duration=10):
                f"{collision_warnings} Warnungen, {collision_criticals} kritische Situationen")
 
 
-def test_mapping_functionality(fusion_system, logger, duration=15):
+def test_mapping_functionality(fusion_system: LidarControllerFusion, logger: logging.Logger, duration: int = 15) -> None:  # KORREKTUR: Typ-Annotations
     """
     Testet Environment Mapping Funktionalität.
 
@@ -533,8 +536,9 @@ def test_mapping_functionality(fusion_system, logger, duration=15):
 
     # Teste Karten-Export
     try:
-        map_data, metadata = fusion_system.get_map_around_robot(radius_meters=10.0)
-        if map_data is not None:
+        map_result = fusion_system.get_map_around_robot(radius_meters=10.0)
+        if map_result is not None:
+            map_data, metadata = map_result
             occupied_cells = np.sum(map_data > 0.1)  # Zähle belegte Zellen
             total_cells = map_data.size
             occupancy_rate = occupied_cells / total_cells * 100
@@ -548,7 +552,7 @@ def test_mapping_functionality(fusion_system, logger, duration=15):
         logger.error(f"❌ Mapping-Test Fehler: {e}")
 
 
-def test_recording_functionality(fusion_system, logger, duration=10):
+def test_recording_functionality(fusion_system: LidarControllerFusion, logger: logging.Logger, duration: int = 10) -> None:  # KORREKTUR: Typ-Annotations
     """
     Testet Data Recording Funktionalität.
 
@@ -611,7 +615,7 @@ def test_recording_functionality(fusion_system, logger, duration=10):
         logger.error("❌ Keine Recording-Daten erhalten")
 
 
-def test_collision_detection(fusion_system, logger, duration=8):
+def test_collision_detection(fusion_system: LidarControllerFusion, logger: logging.Logger, duration: int = 8) -> None:  # KORREKTUR: Typ-Annotations
     """
     Testet Kollisionserkennung mit gezielten Szenarien.
 
@@ -623,7 +627,7 @@ def test_collision_detection(fusion_system, logger, duration=8):
     logger.info(f"🚧 Starte Kollisionserkennungs-Test ({duration}s)...")
 
     start_time = time.time()
-    collision_events = {"safe": 0, "warning": 0, "critical": 0}
+    collision_events: Dict[str, int] = {"safe": 0, "warning": 0, "critical": 0}  # KORREKTUR: Typ-Annotation
 
     while time.time() - start_time < duration:
         t = time.time() - start_time
@@ -632,7 +636,7 @@ def test_collision_detection(fusion_system, logger, duration=8):
         if t < duration / 2:
             # Sichere Phase - weit weg von Hindernissen
             pose = RobotPose(-3.0, 0.0, 0.0, time.time())
-            ultrasonic_data = {"front": 3.0, "left": 3.0, "right": 3.0, "back": 3.0}
+            ultrasonic_data: Dict[str, float] = {"front": 3.0, "left": 3.0, "right": 3.0, "back": 3.0}  # KORREKTUR: Typ-Annotation
         else:
             # Annäherung - näher zu Hindernissen
             approach_factor = (t - duration / 2) * 2  # 0 bis 1
@@ -666,12 +670,15 @@ def test_collision_detection(fusion_system, logger, duration=8):
                f"Critical: {collision_events['critical']}")
 
 
-def main():
+def main() -> int:  # KORREKTUR: Return-Type
     """
     Haupt-Testfunktion.
+    
+    Returns:
+        Exit-Code (0 = Erfolg, >0 = Fehler)
     """
     parser = argparse.ArgumentParser(
-        description='LIDAR-Fusion System Test',
+        description='LIDAR-Fusion System Test v1.0.2',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Beispiele:
@@ -706,7 +713,7 @@ Beispiele:
     logger = setup_test_logging(log_level)
 
     try:
-        logger.info("🚀 === LIDAR-Controller-Fusion System Test ===")
+        logger.info("🚀 === LIDAR-Controller-Fusion System Test v1.0.2 ===")
         logger.info(f"📋 Test-Konfiguration:")
         logger.info(f"   - Dauer: {args.duration}s")
         logger.info(f"   - LIDAR Port: {args.lidar_port}")
@@ -718,7 +725,7 @@ Beispiele:
         if args.simulate:
             # Patche LidarThreadManager für Simulation
             import lidar_controller_fusion
-            original_manager = lidar_controller_fusion.LidarThreadManager
+            original_manager = lidar_controller_fusion.LidarThreadManager  # KORREKTUR: Variable für Original speichern
             lidar_controller_fusion.LidarThreadManager = SimulatedLidarThreadManager
             logger.info("🎮 Simulation aktiviert - keine echte Hardware erforderlich")
 
@@ -794,6 +801,11 @@ Beispiele:
             # System sauber herunterfahren
             logger.info("🔌 Stoppe System...")
             fusion_system.stop()
+            
+            # KORREKTUR: Original LidarThreadManager wiederherstellen falls gepatcht
+            if args.simulate:
+                import lidar_controller_fusion
+                lidar_controller_fusion.LidarThreadManager = original_manager
 
         logger.info("")
         logger.info("🎉 === Test erfolgreich abgeschlossen ===")

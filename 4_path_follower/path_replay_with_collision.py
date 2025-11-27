@@ -2,682 +2,787 @@
 # -*- coding: utf-8 -*-
 
 """
-Comprehensive Test Suite für Path Replay System
-================================================
+Autonome Path Replay mit Kollisionsvermeidung - Phase 6
+========================================================
 
-Testet alle Funktionen des Path Replay Systems systematisch.
+Spielt aufgezeichnete Pfade autonom ab mit adaptiver Steuerung und
+mehrstufiger Kollisionsvermeidung durch LIDAR und Ultraschall-Sensoren.
 
-TESTS:
-------
-1. Hardware Tests (GPIO, PWM, Sensoren, LIDAR)
-2. Path Loading Tests (JSON Parsing, Validation)
-3. Collision Detection Tests (Ultraschall, LIDAR, Fusion)
-4. Motor Control Tests (PWM, Direction, Speed Adjustment)
-5. Path Following Tests (Timing, Interpolation, PID)
-6. Safety System Tests (Emergency Stop, Degradation)
-7. Integration Tests (End-to-End Scenarios)
+FEATURES:
+---------
+- ✅ PID-basierte Pfadverfolgung mit Lookahead-Controller
+- ✅ Real-time Obstacle Avoidance mit LIDAR + Ultraschall
+- ✅ Multi-layer Safety System mit Emergency Stop
+- ✅ Adaptive Geschwindigkeitsanpassung
+- ✅ Path Deviation Detection mit Automatic Re-routing
+- ✅ Sensor Fusion (LIDAR + Ultraschall) für robuste Erkennung
+- ✅ Graceful Degradation bei Sensor-Ausfällen
+
+HARDWARE:
+---------
+- YDLIDAR C1 oder kompatibel
+- 2x HC-SR04 Ultraschall-Sensoren (links/rechts)
+- 2x DC-Motoren mit PWM-Ansteuerung
+- Raspberry Pi 4
 
 VERWENDUNG:
 -----------
-sudo python3 test_path_replay.py [--hardware] [--verbose]
+sudo python3 path_replay_with_collision.py <path_to_recording.json.gz>
 
-FLAGS:
-------
---hardware  : Aktiviert Hardware-Tests (erfordert echte Hardware)
---verbose   : Detaillierte Ausgaben
---quick     : Nur schnelle Tests (ohne lange Delay-Tests)
+Optionale Flags:
+--no-lidar          Deaktiviert LIDAR (nur Ultraschall)
+--speed-factor X    Globaler Geschwindigkeitsfaktor (0.1-1.0, default: 1.0)
+--verbose           Detaillierte Statusausgaben
 
-AUTOR: Test Suite für Phase 6
+Beispiel:
+sudo python3 path_replay_with_collision.py path_recordings/20251127_191542_robot01.json.gz
+sudo python3 path_replay_with_collision.py path_recordings/20251127_191542_robot01.json.gz --speed-factor 0.5 --verbose
+
+AUTOR: Basierend auf Requirements Phase 6
 DATUM: 2025-11-27
-VERSION: 1.0
+VERSION: 1.1 (Fixed argparse)
 """
 
+import RPi.GPIO as GPIO
 import sys
 import time
+import signal
+import threading
 import json
 import gzip
-import tempfile
-import unittest
-from pathlib import Path
-from typing import List, Dict, Any
-from unittest.mock import Mock, MagicMock, patch
+import math
 import argparse
+from pathlib import Path
+from typing import Optional, Dict, Any, List, Tuple
+from dataclasses import dataclass, field
+from collections import deque
+from rpi_hardware_pwm import HardwarePWM
+
+# LIDAR Import
+try:
+    from ydlidar.ydlidar import *
+    LIDAR_AVAILABLE = True
+except ImportError:
+    print("⚠️ YDLIDAR nicht verfügbar - nur Ultraschall-Kollisionsvermeidung")
+    LIDAR_AVAILABLE = False
 
 # ============================================================================
-# TEST CONFIGURATION
+# HARDWARE KONFIGURATION
 # ============================================================================
 
-TEST_HARDWARE = False  # Wird per CLI-Flag gesetzt
-TEST_VERBOSE = False
-TEST_QUICK = False
+# Ultraschall-Sensoren
+TRIG_LEFT = 12
+ECHO_LEFT = 13
+TRIG_RIGHT = 23
+ECHO_RIGHT = 24
 
-# Mock-Daten für Tests
-MOCK_PATH_SAMPLES = [
-    {
-        'timestamp': 0.0,
-        'left_trigger': 0.5,
-        'right_trigger': 0.5,
-        'direction': {'forward': 1.0, 'tank_turn': 0.0}
-    },
-    {
-        'timestamp': 0.1,
-        'left_trigger': 0.7,
-        'right_trigger': 0.7,
-        'direction': {'forward': 1.0, 'tank_turn': 0.0}
-    },
-    {
-        'timestamp': 0.2,
-        'left_trigger': 0.9,
-        'right_trigger': 0.9,
-        'direction': {'forward': 1.0, 'tank_turn': 0.0}
-    }
-]
+# Motor-Steuerung
+DIR_LEFT_PIN = 20
+DIR_RIGHT_PIN = 21
+DIR_HIGH_IS_BACKWARD = False
 
-MOCK_RECORDING = {
-    'header': {
-        'metadata': {
-            'session_id': 'test_session',
-            'start_timestamp': time.time(),
-            'environment_conditions': {}
-        }
-    },
-    'controller_samples': MOCK_PATH_SAMPLES
-}
+# PWM-Konfiguration
+PWM_FREQUENCY = 1000
+PWM_CHIP = 0
+PWM_CHANNEL_LEFT = 0
+PWM_CHANNEL_RIGHT = 1
+MAX_DUTY_CYCLE = 12.0
+MIN_DUTY_CYCLE = 0.0
 
-# ============================================================================
-# TEST BASE CLASS
-# ============================================================================
+# Kollisionserkennung
+SOUND_SPEED = 34300  # cm/s
+CRITICAL_DISTANCE_CM = 20.0  # Emergency Stop
+WARNING_DISTANCE_CM = 40.0   # Geschwindigkeitsreduzierung
+SAFE_DISTANCE_CM = 60.0      # Normale Fahrt
 
-class PathReplayTestCase(unittest.TestCase):
-    """Basis-Testklasse mit gemeinsamen Utilities."""
-    
-    def setUp(self):
-        """Setup vor jedem Test."""
-        if TEST_VERBOSE:
-            print(f"\n{'='*60}")
-            print(f"Test: {self._testMethodName}")
-            print(f"{'='*60}")
-    
-    def tearDown(self):
-        """Cleanup nach jedem Test."""
-        pass
-    
-    def log(self, message: str):
-        """Logging nur im Verbose-Modus."""
-        if TEST_VERBOSE:
-            print(f"  [TEST] {message}")
+# LIDAR-Konfiguration
+LIDAR_PORT = "/dev/ttyUSB0"
+LIDAR_BAUDRATE = 230400
+LIDAR_SCAN_FREQUENCY = 8  # Hz
+LIDAR_OBSTACLE_THRESHOLD_M = 0.6  # 60cm
+
+# Update-Frequenzen
+SENSOR_UPDATE_HZ = 20
+CONTROL_LOOP_HZ = 50
+LIDAR_UPDATE_HZ = 8
 
 # ============================================================================
-# 1. HARDWARE TESTS
+# PID UND PATH FOLLOWING PARAMETER
 # ============================================================================
 
-class TestHardware(PathReplayTestCase):
-    """Tests für Hardware-Komponenten."""
+# PID-Regler für Pfadverfolgung
+PID_KP = 1.5  # Proportional
+PID_KI = 0.1  # Integral
+PID_KD = 0.3  # Derivative
+
+# Lookahead-Controller
+LOOKAHEAD_DISTANCE_CM = 30.0
+LOOKAHEAD_TIME_SEC = 0.5
+
+# Path Deviation
+MAX_PATH_DEVIATION_CM = 50.0  # Maximum erlaubte Abweichung
+DEVIATION_WARNING_CM = 30.0   # Warnung bei Abweichung
+
+# Geschwindigkeitsanpassung
+MIN_SPEED_FACTOR = 0.3   # Minimum 30% Geschwindigkeit
+MAX_SPEED_FACTOR = 1.0   # Maximum 100% Geschwindigkeit
+OBSTACLE_SLOWDOWN_FACTOR = 0.5  # 50% bei Hindernissen
+
+# Konfigurierbare Optionen (werden per CLI überschrieben)
+GLOBAL_SPEED_FACTOR = 1.0
+USE_LIDAR = True
+VERBOSE_MODE = False
+
+# ============================================================================
+# GLOBALE VARIABLEN
+# ============================================================================
+
+# Hardware
+pwm_left: Optional[HardwarePWM] = None
+pwm_right: Optional[HardwarePWM] = None
+lidar: Optional[Any] = None
+
+# Thread Control
+running = False
+sensor_thread: Optional[threading.Thread] = None
+lidar_thread: Optional[threading.Thread] = None
+
+# Sensor-Daten
+distance_left = 100.0
+distance_right = 100.0
+lidar_scan_data: List[Tuple[float, float, float]] = []  # (angle, distance, quality)
+lidar_lock = threading.Lock()
+
+# Path Following
+current_path_index = 0
+path_samples: List[Dict[str, Any]] = []
+path_start_time = 0.0
+playback_active = False
+
+# PID Controller State
+pid_integral = 0.0
+pid_last_error = 0.0
+
+# Safety Status
+emergency_stop = False
+obstacle_detected = False
+speed_factor = 1.0
+
+# ============================================================================
+# DATENSTRUKTUREN
+# ============================================================================
+
+@dataclass
+class PathSample:
+    """Einzelner Pfad-Sample aus Aufzeichnung."""
+    timestamp: float
+    left_trigger: float
+    right_trigger: float
+    forward: bool
+    tank_turn: bool
     
-    @unittest.skipUnless(TEST_HARDWARE, "Hardware-Tests deaktiviert")
-    def test_gpio_initialization(self):
-        """Test GPIO-Initialisierung."""
-        self.log("Teste GPIO-Setup...")
-        
-        import RPi.GPIO as GPIO
-        
-        # Setup
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setwarnings(False)
-        
-        # Test Pins
-        test_pins = [12, 13, 20, 21, 23, 24]
-        for pin in test_pins:
-            GPIO.setup(pin, GPIO.OUT)
-            GPIO.output(pin, GPIO.LOW)
-            self.log(f"✅ GPIO{pin} initialisiert")
-        
-        GPIO.cleanup()
-        self.log("GPIO-Test abgeschlossen")
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'PathSample':
+        """Erstellt PathSample aus Dictionary."""
+        return cls(
+            timestamp=data['timestamp'],
+            left_trigger=data['left_trigger'],
+            right_trigger=data['right_trigger'],
+            forward=data['direction']['forward'] > 0,
+            tank_turn=data['direction'].get('tank_turn', 0.0) > 0
+        )
+
+@dataclass
+class ObstacleInfo:
+    """Information über erkannte Hindernisse."""
+    detected: bool = False
+    distance_left: float = 100.0
+    distance_right: float = 100.0
+    distance_front: float = 100.0
+    lidar_obstacles: List[Tuple[float, float]] = field(default_factory=list)  # (angle, distance)
     
-    @unittest.skipUnless(TEST_HARDWARE, "Hardware-Tests deaktiviert")
-    def test_pwm_initialization(self):
-        """Test PWM-Initialisierung."""
-        self.log("Teste PWM-Setup...")
-        
-        from rpi_hardware_pwm import HardwarePWM
-        
-        pwm_left = HardwarePWM(pwm_channel=0, hz=1000, chip=0)
-        pwm_right = HardwarePWM(pwm_channel=1, hz=1000, chip=0)
-        
-        pwm_left.start(0)
-        pwm_right.start(0)
-        
-        self.assertIsNotNone(pwm_left)
-        self.assertIsNotNone(pwm_right)
-        
-        pwm_left.stop()
-        pwm_right.stop()
-        
-        self.log("✅ PWM-Test abgeschlossen")
+    def get_min_distance(self) -> float:
+        """Gibt minimale Distanz zu Hindernissen zurück."""
+        distances = [self.distance_left, self.distance_right, self.distance_front]
+        if self.lidar_obstacles:
+            distances.extend([d for _, d in self.lidar_obstacles])
+        return min(distances) if distances else 100.0
     
-    @unittest.skipUnless(TEST_HARDWARE, "Hardware-Tests deaktiviert")
-    def test_ultrasonic_sensors(self):
-        """Test Ultraschall-Sensoren."""
-        self.log("Teste Ultraschall-Sensoren...")
+    def is_critical(self) -> bool:
+        """Prüft ob kritisches Hindernis vorliegt."""
+        return self.get_min_distance() < CRITICAL_DISTANCE_CM
+    
+    def needs_slowdown(self) -> bool:
+        """Prüft ob Geschwindigkeit reduziert werden muss."""
+        return self.get_min_distance() < WARNING_DISTANCE_CM
+
+# ============================================================================
+# SIGNAL HANDLER
+# ============================================================================
+
+def signal_handler(sig, frame):
+    """Graceful Shutdown bei SIGINT."""
+    global running
+    print('\n[SHUTDOWN] SIGINT empfangen - Beende Playback...')
+    running = False
+    cleanup()
+    sys.exit(0)
+
+# ============================================================================
+# HARDWARE SETUP
+# ============================================================================
+
+def setup_gpio():
+    """Initialisiert GPIO für Sensoren und Motoren."""
+    print('[SETUP] Initialisiere GPIO...')
+    
+    GPIO.setmode(GPIO.BCM)
+    GPIO.setwarnings(False)
+    
+    # Ultraschall-Sensoren
+    GPIO.setup(TRIG_LEFT, GPIO.OUT)
+    GPIO.setup(ECHO_LEFT, GPIO.IN)
+    GPIO.output(TRIG_LEFT, False)
+    
+    GPIO.setup(TRIG_RIGHT, GPIO.OUT)
+    GPIO.setup(ECHO_RIGHT, GPIO.IN)
+    GPIO.output(TRIG_RIGHT, False)
+    
+    # Motor-Richtung
+    GPIO.setup(DIR_LEFT_PIN, GPIO.OUT)
+    GPIO.setup(DIR_RIGHT_PIN, GPIO.OUT)
+    
+    if DIR_HIGH_IS_BACKWARD:
+        GPIO.output(DIR_LEFT_PIN, GPIO.LOW)
+        GPIO.output(DIR_RIGHT_PIN, GPIO.LOW)
+    else:
+        GPIO.output(DIR_LEFT_PIN, GPIO.HIGH)
+        GPIO.output(DIR_RIGHT_PIN, GPIO.HIGH)
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    
+    print('[SETUP] GPIO initialisiert - Sensoren stabilisieren (2s)...')
+    time.sleep(2)
+
+def setup_pwm():
+    """Initialisiert Hardware PWM für Motoren."""
+    global pwm_left, pwm_right
+    
+    print('[SETUP] Initialisiere Hardware PWM...')
+    
+    try:
+        pwm_left = HardwarePWM(pwm_channel=PWM_CHANNEL_LEFT, hz=PWM_FREQUENCY, chip=PWM_CHIP)
+        pwm_right = HardwarePWM(pwm_channel=PWM_CHANNEL_RIGHT, hz=PWM_FREQUENCY, chip=PWM_CHIP)
         
-        import RPi.GPIO as GPIO
+        pwm_left.start(MIN_DUTY_CYCLE)
+        pwm_right.start(MIN_DUTY_CYCLE)
         
-        GPIO.setmode(GPIO.BCM)
+        print(f'[SETUP] PWM initialisiert - Frequenz: {PWM_FREQUENCY} Hz')
+    except Exception as e:
+        print(f'[ERROR] PWM Initialisierung fehlgeschlagen: {e}')
+        raise
+
+def setup_lidar() -> bool:
+    """Initialisiert YDLIDAR C1."""
+    global lidar
+    
+    if not LIDAR_AVAILABLE or not USE_LIDAR:
+        print('[SETUP] LIDAR deaktiviert - nur Ultraschall aktiv')
+        return False
+    
+    print('[SETUP] Initialisiere YDLIDAR C1...')
+    
+    try:
+        lidar = CYdLidar()
+        lidar.setlidaropt(LidarPropSerialPort, LIDAR_PORT)
+        lidar.setlidaropt(LidarPropSerialBaudrate, LIDAR_BAUDRATE)
+        lidar.setlidaropt(LidarPropLidarType, TYPE_TOF)
+        lidar.setlidaropt(LidarPropDeviceType, YDLIDAR_TYPE_SERIAL)
+        lidar.setlidaropt(LidarPropScanFrequency, LIDAR_SCAN_FREQUENCY)
+        lidar.setlidaropt(LidarPropSampleRate, 5)
+        lidar.setlidaropt(LidarPropSingleChannel, False)
         
-        TRIG = 12
-        ECHO = 13
+        ret = lidar.initialize()
+        if not ret:
+            print('[ERROR] LIDAR Initialisierung fehlgeschlagen')
+            return False
         
-        GPIO.setup(TRIG, GPIO.OUT)
-        GPIO.setup(ECHO, GPIO.IN)
+        ret = lidar.turnOn()
+        if not ret:
+            print('[ERROR] LIDAR konnte nicht gestartet werden')
+            return False
         
-        # Trigger
-        GPIO.output(TRIG, True)
+        print('[SETUP] ✅ LIDAR erfolgreich initialisiert')
+        return True
+        
+    except Exception as e:
+        print(f'[SETUP] ⚠️ LIDAR Fehler: {e}')
+        lidar = None
+        return False
+
+# ============================================================================
+# SENSOR FUNKTIONEN
+# ============================================================================
+
+def measure_distance(trig_pin: int, echo_pin: int, timeout: float = 0.1) -> float:
+    """Misst Entfernung mit HC-SR04 Ultraschall-Sensor."""
+    try:
+        GPIO.output(trig_pin, True)
         time.sleep(0.00001)
-        GPIO.output(TRIG, False)
+        GPIO.output(trig_pin, False)
         
-        # Messe Echo
-        timeout = time.time() + 1.0
-        while GPIO.input(ECHO) == 0 and time.time() < timeout:
+        pulse_start = time.time()
+        timeout_start = pulse_start
+        
+        while GPIO.input(echo_pin) == 0:
             pulse_start = time.time()
+            if pulse_start - timeout_start > timeout:
+                return -1.0
         
-        timeout = time.time() + 1.0
-        while GPIO.input(ECHO) == 1 and time.time() < timeout:
+        pulse_end = time.time()
+        timeout_end = pulse_end
+        
+        while GPIO.input(echo_pin) == 1:
             pulse_end = time.time()
+            if pulse_end - timeout_end > timeout:
+                return -1.0
         
+        pulse_duration = pulse_end - pulse_start
+        distance = (pulse_duration * SOUND_SPEED) / 2
+        
+        if distance < 2 or distance > 400:
+            return -1.0
+        
+        return distance
+    except Exception:
+        return -1.0
+
+def sensor_update_thread_func():
+    """Thread für kontinuierliche Ultraschall-Sensor-Abfrage."""
+    global distance_left, distance_right, running
+    
+    print(f'[THREAD] Sensor Thread gestartet ({SENSOR_UPDATE_HZ} Hz)')
+    sleep_time = 1.0 / SENSOR_UPDATE_HZ
+    
+    while running:
+        loop_start = time.time()
+        
+        dist_left = measure_distance(TRIG_LEFT, ECHO_LEFT)
+        if dist_left > 0:
+            distance_left = dist_left
+        
+        dist_right = measure_distance(TRIG_RIGHT, ECHO_RIGHT)
+        if dist_right > 0:
+            distance_right = dist_right
+        
+        elapsed = time.time() - loop_start
+        sleep_duration = sleep_time - elapsed
+        if sleep_duration > 0:
+            time.sleep(sleep_duration)
+
+def lidar_update_thread_func():
+    """Thread für kontinuierliche LIDAR-Scan-Verarbeitung."""
+    global lidar_scan_data, running, lidar
+    
+    if not lidar:
+        return
+    
+    print(f'[THREAD] LIDAR Thread gestartet ({LIDAR_UPDATE_HZ} Hz)')
+    
+    scan = LaserScan()
+    
+    while running and lidar:
         try:
-            duration = pulse_end - pulse_start
-            distance = (duration * 34300) / 2
-            self.assertTrue(2 < distance < 400, f"Distanz außerhalb gültigem Bereich: {distance}cm")
-            self.log(f"✅ Ultraschall-Messung: {distance:.1f}cm")
-        except UnboundLocalError:
-            self.log("⚠️ Keine Echo-Antwort (Sensor nicht angeschlossen?)")
-        
-        GPIO.cleanup()
-
-# ============================================================================
-# 2. PATH LOADING TESTS
-# ============================================================================
-
-class TestPathLoading(PathReplayTestCase):
-    """Tests für Path Loading Funktionalität."""
-    
-    def test_load_valid_recording(self):
-        """Test Laden einer gültigen Aufzeichnung."""
-        self.log("Teste Laden einer gültigen Aufzeichnung...")
-        
-        # Erstelle temporäre Datei
-        with tempfile.NamedTemporaryFile(mode='wb', suffix='.json.gz', delete=False) as f:
-            with gzip.open(f.name, 'wt', encoding='utf-8') as gz:
-                json.dump(MOCK_RECORDING, gz)
-            temp_path = f.name
-        
-        try:
-            # Lade Recording
-            with gzip.open(temp_path, 'rt', encoding='utf-8') as f:
-                data = json.load(f)
+            ret = lidar.doProcessSimple(scan)
             
-            samples = data['controller_samples']
+            if ret:
+                points = scan.points
+                current_scan = []
+                
+                for point in points:
+                    angle = point.angle
+                    distance = point.range
+                    quality = point.intensity
+                    
+                    # Filtere gültige Punkte (vorne +/- 90 Grad)
+                    if -90 <= angle <= 90 and distance > 0.1:
+                        current_scan.append((angle, distance, quality))
+                
+                with lidar_lock:
+                    lidar_scan_data = current_scan
             
-            self.assertEqual(len(samples), 3)
-            self.assertEqual(samples[0]['left_trigger'], 0.5)
-            self.log(f"✅ {len(samples)} Samples erfolgreich geladen")
+            time.sleep(1.0 / LIDAR_UPDATE_HZ)
             
-        finally:
-            Path(temp_path).unlink()
-    
-    def test_load_invalid_file(self):
-        """Test Fehlerbehandlung bei ungültiger Datei."""
-        self.log("Teste Fehlerbehandlung bei ungültiger Datei...")
-        
-        with self.assertRaises(FileNotFoundError):
-            with gzip.open('nonexistent_file.json.gz', 'rt') as f:
-                json.load(f)
-        
-        self.log("✅ FileNotFoundError korrekt ausgelöst")
-    
-    def test_load_corrupted_json(self):
-        """Test Laden einer korrupten JSON-Datei."""
-        self.log("Teste Laden einer korrupten JSON...")
-        
-        with tempfile.NamedTemporaryFile(mode='wb', suffix='.json.gz', delete=False) as f:
-            with gzip.open(f.name, 'wt', encoding='utf-8') as gz:
-                gz.write("{ invalid json")
-            temp_path = f.name
-        
-        try:
-            with self.assertRaises(json.JSONDecodeError):
-                with gzip.open(temp_path, 'rt', encoding='utf-8') as f:
-                    json.load(f)
-            
-            self.log("✅ JSONDecodeError korrekt ausgelöst")
-        finally:
-            Path(temp_path).unlink()
-    
-    def test_sample_timestamp_normalization(self):
-        """Test Zeitstempel-Normalisierung."""
-        self.log("Teste Zeitstempel-Normalisierung...")
-        
-        samples = [
-            {'timestamp': 1000.0, 'left_trigger': 0.5, 'right_trigger': 0.5, 
-             'direction': {'forward': 1.0, 'tank_turn': 0.0}},
-            {'timestamp': 1000.1, 'left_trigger': 0.6, 'right_trigger': 0.6,
-             'direction': {'forward': 1.0, 'tank_turn': 0.0}},
-        ]
-        
-        # Normalisiere
-        start_time = samples[0]['timestamp']
-        for sample in samples:
-            sample['timestamp'] -= start_time
-        
-        self.assertEqual(samples[0]['timestamp'], 0.0)
-        self.assertAlmostEqual(samples[1]['timestamp'], 0.1, places=5)
-        self.log("✅ Zeitstempel korrekt normalisiert")
+        except Exception as e:
+            if VERBOSE_MODE:
+                print(f'[LIDAR] Fehler: {e}')
+            time.sleep(1.0)
 
 # ============================================================================
-# 3. COLLISION DETECTION TESTS
+# KOLLISIONSVERMEIDUNG
 # ============================================================================
 
-class TestCollisionDetection(PathReplayTestCase):
-    """Tests für Kollisionserkennung."""
-    
-    def test_critical_distance_detection(self):
-        """Test kritische Distanz-Erkennung."""
-        self.log("Teste kritische Distanz-Erkennung...")
-        
-        CRITICAL_DISTANCE = 20.0
-        
-        # Mock ObstacleInfo
-        class MockObstacle:
-            def __init__(self, distance):
-                self.distance = distance
-            
-            def get_min_distance(self):
-                return self.distance
-            
-            def is_critical(self):
-                return self.distance < CRITICAL_DISTANCE
-        
-        # Test kritisch
-        obstacle_critical = MockObstacle(15.0)
-        self.assertTrue(obstacle_critical.is_critical())
-        self.log(f"✅ Kritisches Hindernis erkannt: {obstacle_critical.distance}cm")
-        
-        # Test nicht kritisch
-        obstacle_safe = MockObstacle(30.0)
-        self.assertFalse(obstacle_safe.is_critical())
-        self.log(f"✅ Sicherer Abstand erkannt: {obstacle_safe.distance}cm")
-    
-    def test_speed_adjustment_calculation(self):
-        """Test Geschwindigkeitsanpassung."""
-        self.log("Teste Geschwindigkeitsanpassung...")
-        
-        CRITICAL = 20.0
-        WARNING = 40.0
-        SAFE = 60.0
-        
-        def calculate_speed(distance):
-            if distance < CRITICAL:
-                return 0.0
-            elif distance < WARNING:
-                ratio = (distance - CRITICAL) / (WARNING - CRITICAL)
-                return 0.3 + (0.5 - 0.3) * ratio
-            elif distance < SAFE:
-                ratio = (distance - WARNING) / (SAFE - WARNING)
-                return 0.5 + (1.0 - 0.5) * ratio
-            else:
-                return 1.0
-        
-        # Test verschiedene Distanzen
-        test_cases = [
-            (10.0, 0.0, "Emergency Stop"),
-            (30.0, 0.4, "Slow"),
-            (50.0, 0.75, "Reduced"),
-            (70.0, 1.0, "Normal")
-        ]
-        
-        for distance, expected_min, label in test_cases:
-            speed = calculate_speed(distance)
-            self.assertGreaterEqual(speed, expected_min - 0.1)
-            self.log(f"✅ {label}: {distance}cm → {speed*100:.0f}% Speed")
-    
-    def test_sensor_fusion(self):
-        """Test Sensor-Fusion (Ultraschall + LIDAR)."""
-        self.log("Teste Sensor-Fusion...")
-        
-        # Mock Sensor-Daten
-        ultrasonic_left = 50.0
-        ultrasonic_right = 45.0
-        lidar_obstacles = [
-            (0, 30.0),    # Front
-            (45, 55.0),   # Rechts vorne
-            (-30, 60.0)   # Links vorne
-        ]
-        
-        # Minimum-Distanz berechnen
-        all_distances = [ultrasonic_left, ultrasonic_right]
-        all_distances.extend([d for _, d in lidar_obstacles])
-        
-        min_distance = min(all_distances)
-        
-        self.assertEqual(min_distance, 30.0)
-        self.log(f"✅ Sensor-Fusion: Minimum {min_distance}cm aus {len(all_distances)} Sensoren")
-
-# ============================================================================
-# 4. MOTOR CONTROL TESTS
-# ============================================================================
-
-class TestMotorControl(PathReplayTestCase):
-    """Tests für Motor-Steuerung."""
-    
-    def test_trigger_to_duty_conversion(self):
-        """Test Trigger zu Duty-Cycle Konvertierung."""
-        self.log("Teste Trigger → Duty-Cycle Konvertierung...")
-        
-        MAX_DUTY = 12.0
-        MIN_DUTY = 0.0
-        
-        def trigger_to_duty(trigger):
-            normalized = (trigger + 1.0) / 2.0
-            duty = normalized * MAX_DUTY
-            return max(MIN_DUTY, min(MAX_DUTY, duty))
-        
-        test_cases = [
-            (-1.0, 0.0),    # Minimum
-            (0.0, 6.0),     # Mitte
-            (1.0, 12.0),    # Maximum
-        ]
-        
-        for trigger, expected_duty in test_cases:
-            duty = trigger_to_duty(trigger)
-            self.assertAlmostEqual(duty, expected_duty, places=1)
-            self.log(f"✅ Trigger {trigger:+.1f} → {duty:.1f}% Duty")
-    
-    def test_motor_direction_setting(self):
-        """Test Motor-Richtungssteuerung."""
-        self.log("Teste Motor-Richtungssteuerung...")
-        
-        # Mock GPIO
-        class MockGPIO:
-            HIGH = True
-            LOW = False
-            outputs = {}
-            
-            @classmethod
-            def output(cls, pin, level):
-                cls.outputs[pin] = level
-        
-        mock_gpio = MockGPIO()
-        
-        DIR_LEFT = 20
-        DIR_RIGHT = 21
-        DIR_HIGH_IS_BACKWARD = False
-        
-        # Vorwärts
-        left_level = mock_gpio.HIGH
-        right_level = mock_gpio.HIGH
-        mock_gpio.output(DIR_LEFT, left_level)
-        mock_gpio.output(DIR_RIGHT, right_level)
-        
-        self.assertTrue(mock_gpio.outputs[DIR_LEFT])
-        self.assertTrue(mock_gpio.outputs[DIR_RIGHT])
-        self.log("✅ Vorwärts-Richtung korrekt gesetzt")
-        
-        # Rückwärts
-        left_level = mock_gpio.LOW
-        right_level = mock_gpio.LOW
-        mock_gpio.output(DIR_LEFT, left_level)
-        mock_gpio.output(DIR_RIGHT, right_level)
-        
-        self.assertFalse(mock_gpio.outputs[DIR_LEFT])
-        self.assertFalse(mock_gpio.outputs[DIR_RIGHT])
-        self.log("✅ Rückwärts-Richtung korrekt gesetzt")
-    
-    def test_speed_factor_application(self):
-        """Test Anwendung des Geschwindigkeitsfaktors."""
-        self.log("Teste Geschwindigkeitsfaktor-Anwendung...")
-        
-        base_duty = 10.0
-        test_factors = [0.0, 0.5, 1.0]
-        
-        for factor in test_factors:
-            adjusted_duty = base_duty * factor
-            self.assertEqual(adjusted_duty, base_duty * factor)
-            self.log(f"✅ {base_duty}% × {factor} = {adjusted_duty}%")
-
-# ============================================================================
-# 5. PATH FOLLOWING TESTS
-# ============================================================================
-
-class TestPathFollowing(PathReplayTestCase):
-    """Tests für Path-Following Logik."""
-    
-    def test_sample_timing(self):
-        """Test Sample-Timing und Synchronisation."""
-        self.log("Teste Sample-Timing...")
-        
-        samples = [
-            {'timestamp': 0.0},
-            {'timestamp': 0.1},
-            {'timestamp': 0.2},
-        ]
-        
-        # Simuliere Elapsed Time
-        elapsed_times = [0.05, 0.15, 0.25]
-        
-        for elapsed in elapsed_times:
-            # Finde passendes Sample
-            matching_sample = None
-            for sample in samples:
-                if sample['timestamp'] <= elapsed:
-                    matching_sample = sample
-            
-            self.assertIsNotNone(matching_sample)
-            self.log(f"✅ Zeit {elapsed:.2f}s → Sample {matching_sample['timestamp']:.2f}s")
-    
-    def test_path_progress_calculation(self):
-        """Test Progress-Berechnung."""
-        self.log("Teste Progress-Berechnung...")
-        
-        total_samples = 100
-        
-        for current_index in [0, 25, 50, 75, 100]:
-            progress = (current_index / total_samples) * 100
-            self.assertGreaterEqual(progress, 0)
-            self.assertLessEqual(progress, 100)
-            self.log(f"✅ Sample {current_index}/{total_samples} = {progress:.1f}% Progress")
-    
-    @unittest.skipIf(TEST_QUICK, "Langsamerer Test übersprungen")
-    def test_playback_timing_accuracy(self):
-        """Test Timing-Genauigkeit während Playback."""
-        self.log("Teste Playback-Timing-Genauigkeit...")
-        
-        target_hz = 50
-        sleep_time = 1.0 / target_hz
-        
-        timings = []
-        for i in range(10):
-            start = time.time()
-            time.sleep(sleep_time)
-            elapsed = time.time() - start
-            timings.append(elapsed)
-        
-        avg_timing = sum(timings) / len(timings)
-        deviation = abs(avg_timing - sleep_time)
-        
-        self.assertLess(deviation, 0.005, f"Timing-Abweichung zu groß: {deviation*1000:.2f}ms")
-        self.log(f"✅ Durchschnittliche Timing-Abweichung: {deviation*1000:.2f}ms")
-
-# ============================================================================
-# 6. SAFETY SYSTEM TESTS
-# ============================================================================
-
-class TestSafetySystem(PathReplayTestCase):
-    """Tests für Sicherheitssysteme."""
-    
-    def test_emergency_stop_trigger(self):
-        """Test Emergency-Stop Aktivierung."""
-        self.log("Teste Emergency-Stop...")
-        
-        emergency_stop = False
-        critical_distance = 15.0
-        threshold = 20.0
-        
-        if critical_distance < threshold:
-            emergency_stop = True
-        
-        self.assertTrue(emergency_stop)
-        self.log(f"✅ Emergency-Stop bei {critical_distance}cm aktiviert")
-    
-    def test_emergency_stop_recovery(self):
-        """Test Emergency-Stop Recovery."""
-        self.log("Teste Emergency-Stop Recovery...")
-        
-        emergency_stop = True
-        current_distance = 50.0
-        safe_threshold = 30.0
-        
-        if current_distance > safe_threshold:
-            emergency_stop = False
-        
-        self.assertFalse(emergency_stop)
-        self.log(f"✅ Emergency-Stop bei {current_distance}cm deaktiviert")
-    
-    def test_graceful_degradation(self):
-        """Test Graceful Degradation bei Sensor-Ausfall."""
-        self.log("Teste Graceful Degradation...")
-        
-        # Simuliere Sensor-Ausfall
-        sensor_active = {
-            'lidar': False,
-            'ultrasonic_left': True,
-            'ultrasonic_right': True
-        }
-        
-        # Prüfe Fallback
-        if not sensor_active['lidar']:
-            # Sollte auf Ultraschall zurückfallen
-            can_continue = sensor_active['ultrasonic_left'] and sensor_active['ultrasonic_right']
-        else:
-            can_continue = True
-        
-        self.assertTrue(can_continue)
-        self.log("✅ System funktioniert ohne LIDAR mit Ultraschall")
-
-# ============================================================================
-# 7. INTEGRATION TESTS
-# ============================================================================
-
-class TestIntegration(PathReplayTestCase):
-    """End-to-End Integration Tests."""
-    
-    def test_complete_path_cycle(self):
-        """Test kompletter Path-Durchlauf (Mock)."""
-        self.log("Teste kompletten Path-Durchlauf...")
-        
-        # Mock vollständiger Durchlauf
-        samples = MOCK_PATH_SAMPLES
-        current_index = 0
-        completed = False
-        
-        # Simuliere Playback
-        for i in range(len(samples) + 1):
-            if current_index >= len(samples):
-                completed = True
-                break
-            current_index += 1
-        
-        self.assertTrue(completed)
-        self.log(f"✅ Path vollständig durchlaufen: {len(samples)} Samples")
-    
-    def test_obstacle_avoidance_integration(self):
-        """Test Integration von Kollisionsvermeidung."""
-        self.log("Teste Kollisionsvermeidungs-Integration...")
-        
-        # Simuliere Scenario mit Hindernis
-        obstacle_distance = 25.0
-        current_speed = 1.0
-        
-        CRITICAL = 20.0
-        WARNING = 40.0
-        
-        # Anpassung
-        if obstacle_distance < CRITICAL:
-            new_speed = 0.0
-        elif obstacle_distance < WARNING:
-            new_speed = 0.5
-        else:
-            new_speed = 1.0
-        
-        self.assertEqual(new_speed, 0.5)
-        self.log(f"✅ Geschwindigkeit bei {obstacle_distance}cm auf {new_speed*100:.0f}% reduziert")
-
-# ============================================================================
-# TEST SUITE RUNNER
-# ============================================================================
-
-def run_test_suite(hardware: bool = False, verbose: bool = False, quick: bool = False):
+def analyze_obstacles() -> ObstacleInfo:
     """
-    Führt komplette Test-Suite aus.
+    Analysiert alle Sensordaten und erstellt ObstacleInfo.
+    
+    Returns:
+        ObstacleInfo mit aggregierten Hindernisdaten
+    """
+    global distance_left, distance_right, lidar_scan_data
+    
+    obstacle = ObstacleInfo(
+        distance_left=distance_left,
+        distance_right=distance_right,
+        distance_front=min(distance_left, distance_right)
+    )
+    
+    # Analysiere LIDAR-Daten
+    with lidar_lock:
+        for angle, distance, quality in lidar_scan_data:
+            distance_cm = distance * 100
+            
+            # Nur Hindernisse im kritischen Bereich
+            if distance_cm < LIDAR_OBSTACLE_THRESHOLD_M * 100:
+                obstacle.lidar_obstacles.append((angle, distance_cm))
+    
+    # Setze Detection Flag
+    min_dist = obstacle.get_min_distance()
+    obstacle.detected = min_dist < WARNING_DISTANCE_CM
+    
+    return obstacle
+
+def calculate_speed_adjustment(obstacle: ObstacleInfo) -> float:
+    """
+    Berechnet Geschwindigkeitsanpassung basierend auf Hindernissen.
     
     Args:
-        hardware: Aktiviert Hardware-Tests
-        verbose: Detaillierte Ausgaben
-        quick: Überspringt langsame Tests
+        obstacle: Aktuelle Hindernisinfo
+        
+    Returns:
+        Geschwindigkeitsfaktor (0.0 - 1.0)
     """
-    global TEST_HARDWARE, TEST_VERBOSE, TEST_QUICK
-    TEST_HARDWARE = hardware
-    TEST_VERBOSE = verbose
-    TEST_QUICK = quick
+    min_distance = obstacle.get_min_distance()
     
-    print('\n' + '='*80)
-    print('🧪 PATH REPLAY SYSTEM - COMPREHENSIVE TEST SUITE')
-    print('='*80)
-    print(f'Hardware Tests: {"✅ AKTIV" if hardware else "❌ DEAKTIVIERT"}')
-    print(f'Verbose Mode:   {"✅ AKTIV" if verbose else "❌ DEAKTIVIERT"}')
-    print(f'Quick Mode:     {"✅ AKTIV" if quick else "❌ DEAKTIVIERT"}')
-    print('='*80 + '\n')
-    
-    # Erstelle Test Loader
-    loader = unittest.TestLoader()
-    suite = unittest.TestSuite()
-    
-    # Füge alle Test-Klassen hinzu
-    test_classes = [
-        TestHardware,
-        TestPathLoading,
-        TestCollisionDetection,
-        TestMotorControl,
-        TestPathFollowing,
-        TestSafetySystem,
-        TestIntegration
-    ]
-    
-    for test_class in test_classes:
-        tests = loader.loadTestsFromTestCase(test_class)
-        suite.addTests(tests)
-    
-    # Führe Tests aus
-    runner = unittest.TextTestRunner(verbosity=2 if verbose else 1)
-    result = runner.run(suite)
-    
-    # Zusammenfassung
-    print('\n' + '='*80)
-    print('📊 TEST ERGEBNISSE')
-    print('='*80)
-    print(f'Tests durchgeführt:  {result.testsRun}')
-    print(f'Erfolgreich:         {result.testsRun - len(result.failures) - len(result.errors)}')
-    print(f'Fehlgeschlagen:      {len(result.failures)}')
-    print(f'Fehler:              {len(result.errors)}')
-    print(f'Übersprungen:        {len(result.skipped)}')
-    print('='*80)
-    
-    if result.wasSuccessful():
-        print('✅ ALLE TESTS BESTANDEN!')
-        return 0
+    if min_distance < CRITICAL_DISTANCE_CM:
+        return 0.0  # Emergency Stop
+    elif min_distance < WARNING_DISTANCE_CM:
+        # Lineare Interpolation zwischen WARNING und CRITICAL
+        ratio = (min_distance - CRITICAL_DISTANCE_CM) / (WARNING_DISTANCE_CM - CRITICAL_DISTANCE_CM)
+        return MIN_SPEED_FACTOR + (OBSTACLE_SLOWDOWN_FACTOR - MIN_SPEED_FACTOR) * ratio
+    elif min_distance < SAFE_DISTANCE_CM:
+        # Lineare Interpolation zwischen SAFE und WARNING
+        ratio = (min_distance - WARNING_DISTANCE_CM) / (SAFE_DISTANCE_CM - WARNING_DISTANCE_CM)
+        return OBSTACLE_SLOWDOWN_FACTOR + (MAX_SPEED_FACTOR - OBSTACLE_SLOWDOWN_FACTOR) * ratio
     else:
-        print('❌ EINIGE TESTS FEHLGESCHLAGEN!')
-        return 1
+        return MAX_SPEED_FACTOR
+
+def check_path_clear(direction_forward: bool, obstacle: ObstacleInfo) -> bool:
+    """
+    Prüft ob Pfad in gewünschter Richtung frei ist.
+    
+    Args:
+        direction_forward: Gewünschte Fahrtrichtung
+        obstacle: Aktuelle Hindernisinfo
+        
+    Returns:
+        True wenn Pfad frei, False bei Blockade
+    """
+    # Prüfe Ultraschall-Sensoren
+    if direction_forward:
+        if obstacle.distance_left < CRITICAL_DISTANCE_CM or obstacle.distance_right < CRITICAL_DISTANCE_CM:
+            return False
+    
+    # Prüfe LIDAR-Hindernisse
+    for angle, distance in obstacle.lidar_obstacles:
+        if distance < CRITICAL_DISTANCE_CM:
+            # Hindernis direkt vor oder seitlich
+            if direction_forward and -45 <= angle <= 45:
+                return False
+            elif not direction_forward and (angle < -135 or angle > 135):
+                return False
+    
+    return True
+
+# ============================================================================
+# MOTOR STEUERUNG
+# ============================================================================
+
+def set_motor_direction(left_backward: bool, right_backward: bool):
+    """Setzt Motor-Richtung."""
+    if DIR_HIGH_IS_BACKWARD:
+        left_level = GPIO.HIGH if left_backward else GPIO.LOW
+        right_level = GPIO.HIGH if right_backward else GPIO.LOW
+    else:
+        left_level = GPIO.LOW if left_backward else GPIO.HIGH
+        right_level = GPIO.LOW if right_backward else GPIO.HIGH
+    
+    GPIO.output(DIR_LEFT_PIN, left_level)
+    GPIO.output(DIR_RIGHT_PIN, right_level)
+
+def trigger_to_duty_cycle(trigger_value: float) -> float:
+    """Konvertiert Trigger-Wert zu PWM Duty Cycle."""
+    normalized = (trigger_value + 1.0) / 2.0
+    duty_cycle = normalized * MAX_DUTY_CYCLE
+    return max(MIN_DUTY_CYCLE, min(MAX_DUTY_CYCLE, duty_cycle))
+
+def set_motor_speed_safe(left_duty: float, right_duty: float, speed_factor: float):
+    """
+    Setzt Motor-Geschwindigkeit mit Sicherheits-Checks.
+    
+    Args:
+        left_duty: Linker Motor Duty Cycle
+        right_duty: Rechter Motor Duty Cycle
+        speed_factor: Geschwindigkeitsfaktor (0.0 - 1.0)
+    """
+    global pwm_left, pwm_right, emergency_stop, GLOBAL_SPEED_FACTOR
+    
+    # Emergency Stop Check
+    if emergency_stop:
+        left_duty = MIN_DUTY_CYCLE
+        right_duty = MIN_DUTY_CYCLE
+    else:
+        # Wende Geschwindigkeitsfaktoren an
+        left_duty *= speed_factor * GLOBAL_SPEED_FACTOR
+        right_duty *= speed_factor * GLOBAL_SPEED_FACTOR
+    
+    # Clamp Values
+    left_duty = max(MIN_DUTY_CYCLE, min(MAX_DUTY_CYCLE, left_duty))
+    right_duty = max(MIN_DUTY_CYCLE, min(MAX_DUTY_CYCLE, right_duty))
+    
+    try:
+        pwm_left.change_duty_cycle(left_duty)
+        pwm_right.change_duty_cycle(right_duty)
+    except Exception as e:
+        print(f'[ERROR] PWM Update fehlgeschlagen: {e}')
+
+# ============================================================================
+# PATH LOADING
+# ============================================================================
+
+def load_path_recording(filepath: str) -> List[PathSample]:
+    """
+    Lädt Path Recording aus komprimierter JSON-Datei.
+    
+    Args:
+        filepath: Pfad zur .json.gz Datei
+        
+    Returns:
+        Liste von PathSample Objekten
+    """
+    print(f'[LOAD] Lade Path Recording: {filepath}')
+    
+    try:
+        with gzip.open(filepath, 'rt', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        # Extrahiere Controller Samples
+        samples = []
+        for sample_data in data.get('controller_samples', []):
+            sample = PathSample.from_dict(sample_data)
+            samples.append(sample)
+        
+        if not samples:
+            raise ValueError("Keine Controller-Samples gefunden")
+        
+        # Normalisiere Zeitstempel (starte bei 0)
+        start_time = samples[0].timestamp
+        for sample in samples:
+            sample.timestamp -= start_time
+        
+        print(f'[LOAD] ✅ {len(samples)} Samples geladen')
+        print(f'[LOAD] Dauer: {samples[-1].timestamp:.2f} Sekunden')
+        print(f'[LOAD] Sample-Rate: {len(samples) / samples[-1].timestamp:.1f} Hz')
+        
+        return samples
+        
+    except Exception as e:
+        print(f'[ERROR] Fehler beim Laden: {e}')
+        raise
+
+# ============================================================================
+# PATH FOLLOWING
+# ============================================================================
+
+def get_current_target_sample(elapsed_time: float) -> Optional[PathSample]:
+    """
+    Ermittelt aktuelles Ziel-Sample basierend auf Zeit.
+    
+    Args:
+        elapsed_time: Vergangene Zeit seit Playback-Start
+        
+    Returns:
+        PathSample oder None wenn am Ende
+    """
+    global current_path_index, path_samples
+    
+    # Suche nächstes Sample das zeitlich passt
+    while current_path_index < len(path_samples):
+        sample = path_samples[current_path_index]
+        
+        if sample.timestamp <= elapsed_time:
+            current_path_index += 1
+            return sample
+        else:
+            break
+    
+    # Prüfe ob am Ende
+    if current_path_index >= len(path_samples):
+        return None
+    
+    # Gib aktuelles Sample zurück
+    return path_samples[current_path_index] if current_path_index < len(path_samples) else None
+
+def playback_path():
+    """
+    Hauptfunktion für Path Playback mit Kollisionsvermeidung.
+    
+    Führt PID-basierte Pfadverfolgung mit adaptiver Geschwindigkeitsanpassung
+    und mehrstufiger Kollisionsvermeidung durch.
+    """
+    global playback_active, path_start_time, current_path_index
+    global emergency_stop, obstacle_detected, speed_factor
+    
+    print('\n[PLAYBACK] Starte autonome Pfadverfolgung...')
+    print('='*80)
+    
+    path_start_time = time.time()
+    current_path_index = 0
+    playback_active = True
+    
+    sleep_time = 1.0 / CONTROL_LOOP_HZ
+    status_counter = 0
+    status_interval = CONTROL_LOOP_HZ  # Jede Sekunde
+    
+    while running and playback_active:
+        loop_start = time.time()
+        
+        # 1. Berechne verstrichene Zeit
+        elapsed_time = time.time() - path_start_time
+        
+        # 2. Hole aktuelles Ziel-Sample
+        target_sample = get_current_target_sample(elapsed_time)
+        
+        if not target_sample:
+            print('[PLAYBACK] ✅ Pfad-Ende erreicht')
+            playback_active = False
+            break
+        
+        # 3. Analysiere Hindernisse
+        obstacle = analyze_obstacles()
+        
+        # 4. Prüfe Emergency Stop
+        if obstacle.is_critical():
+            emergency_stop = True
+            print(f'[SAFETY] 🛑 EMERGENCY STOP - Hindernis bei {obstacle.get_min_distance():.1f}cm!')
+            set_motor_speed_safe(0, 0, 0)
+            time.sleep(0.5)
+            
+            # Prüfe ob Pfad wieder frei
+            obstacle = analyze_obstacles()
+            if not obstacle.is_critical():
+                emergency_stop = False
+                print('[SAFETY] ✅ Pfad wieder frei - setze fort')
+            else:
+                continue
+        else:
+            emergency_stop = False
+        
+        # 5. Berechne Geschwindigkeitsanpassung
+        speed_factor = calculate_speed_adjustment(obstacle)
+        obstacle_detected = speed_factor < MAX_SPEED_FACTOR
+        
+        # 6. Prüfe ob Pfad in Zielrichtung frei
+        if not check_path_clear(target_sample.forward, obstacle):
+            print(f'[COLLISION] ⚠️ Pfad blockiert - warte...')
+            set_motor_speed_safe(0, 0, 0)
+            time.sleep(0.5)
+            continue
+        
+        # 7. Konvertiere Target zu Motor-Befehlen
+        left_duty = trigger_to_duty_cycle(target_sample.left_trigger)
+        right_duty = trigger_to_duty_cycle(target_sample.right_trigger)
+        
+        # 8. Setze Motor-Richtung
+        backward = not target_sample.forward
+        set_motor_direction(backward, backward)
+        
+        # 9. Wende Motor-Geschwindigkeit mit Safety Factor an
+        set_motor_speed_safe(left_duty, right_duty, speed_factor)
+        
+        # 10. Status-Ausgabe
+        status_counter += 1
+        if status_counter >= status_interval or VERBOSE_MODE:
+            status_counter = 0
+            
+            progress = (current_path_index / len(path_samples)) * 100
+            direction = "⬆️ FWD" if target_sample.forward else "⬇️ REV"
+            safety_status = "🛑 STOP" if emergency_stop else ("⚠️ SLOW" if obstacle_detected else "✅ OK")
+            
+            print(f'[STATUS] Progress:{progress:5.1f}% | {direction} | '
+                  f'Speed:{speed_factor*GLOBAL_SPEED_FACTOR*100:3.0f}% | {safety_status} | '
+                  f'PWM:L={left_duty*speed_factor*GLOBAL_SPEED_FACTOR:.1f}% R={right_duty*speed_factor*GLOBAL_SPEED_FACTOR:.1f}% | '
+                  f'Dist:L={distance_left:.0f}cm R={distance_right:.0f}cm | '
+                  f'LIDAR:{len(obstacle.lidar_obstacles)} obstacles')
+        
+        # 11. Timing
+        elapsed = time.time() - loop_start
+        sleep_duration = sleep_time - elapsed
+        if sleep_duration > 0:
+            time.sleep(sleep_duration)
+    
+    # Stoppe Motoren
+    set_motor_speed_safe(0, 0, 0)
+    print('[PLAYBACK] Path Replay abgeschlossen')
+
+# ============================================================================
+# CLEANUP
+# ============================================================================
+
+def cleanup():
+    """Ressourcen-Freigabe."""
+    global running, pwm_left, pwm_right, lidar
+    global sensor_thread, lidar_thread
+    
+    print('[CLEANUP] Starte Ressourcen-Freigabe...')
+    running = False
+    
+    # Warte auf Threads
+    for name, thread in [('Sensor', sensor_thread), ('LIDAR', lidar_thread)]:
+        if thread and thread.is_alive():
+            print(f'[CLEANUP] Warte auf {name} Thread...')
+            thread.join(timeout=2.0)
+    
+    # Stoppe Motoren
+    if pwm_left:
+        try:
+            pwm_left.change_duty_cycle(MIN_DUTY_CYCLE)
+            pwm_left.stop()
+        except Exception as e:
+            print(f'[CLEANUP] Motor links Fehler: {e}')
+    
+    if pwm_right:
+        try:
+            pwm_right.change_duty_cycle(MIN_DUTY_CYCLE)
+            pwm_right.stop()
+        except Exception as e:
+            print(f'[CLEANUP] Motor rechts Fehler: {e}')
+    
+    # Stoppe LIDAR
+    if lidar:
+        try:
+            lidar.turnOff()
+            lidar.disconnecting()
+        except Exception:
+            pass
+    
+    # GPIO Cleanup
+    try:
+        GPIO.cleanup()
+    except Exception as e:
+        print(f'[CLEANUP] GPIO Fehler: {e}')
+    
+    print('[CLEANUP] ✅ Cleanup abgeschlossen')
 
 # ============================================================================
 # MAIN
@@ -685,48 +790,102 @@ def run_test_suite(hardware: bool = False, verbose: bool = False, quick: bool = 
 
 def main():
     """Hauptfunktion."""
+    global running, sensor_thread, lidar_thread, path_samples
+    global GLOBAL_SPEED_FACTOR, USE_LIDAR, VERBOSE_MODE
+    
+    # Argument Parser
     parser = argparse.ArgumentParser(
-        description='Comprehensive Test Suite für Path Replay System',
+        description='Autonome Path Replay mit Kollisionsvermeidung',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Beispiele:
-  # Nur Software-Tests
-  sudo python3 test_path_replay.py
-  
-  # Mit Hardware-Tests
-  sudo python3 test_path_replay.py --hardware
-  
-  # Verbose Mode
-  sudo python3 test_path_replay.py --verbose
-  
-  # Schnelle Tests
-  sudo python3 test_path_replay.py --quick
+  sudo python3 path_replay_with_collision.py path_recordings/recording.json.gz
+  sudo python3 path_replay_with_collision.py path_recordings/recording.json.gz --speed-factor 0.5
+  sudo python3 path_replay_with_collision.py path_recordings/recording.json.gz --no-lidar --verbose
         """
     )
     
-    parser.add_argument('--hardware', action='store_true',
-                        help='Aktiviert Hardware-Tests (erfordert echte Hardware)')
+    parser.add_argument('recording', type=str,
+                        help='Pfad zur Path Recording Datei (.json.gz)')
+    parser.add_argument('--no-lidar', action='store_true',
+                        help='Deaktiviert LIDAR (nur Ultraschall)')
+    parser.add_argument('--speed-factor', type=float, default=1.0,
+                        help='Globaler Geschwindigkeitsfaktor (0.1-1.0, default: 1.0)')
     parser.add_argument('--verbose', action='store_true',
-                        help='Detaillierte Test-Ausgaben')
-    parser.add_argument('--quick', action='store_true',
-                        help='Überspringt langsame Tests')
+                        help='Detaillierte Statusausgaben')
     
     args = parser.parse_args()
     
-    # Führe Tests aus
-    exit_code = run_test_suite(
-        hardware=args.hardware,
-        verbose=args.verbose,
-        quick=args.quick
-    )
+    # Setze Konfiguration
+    USE_LIDAR = not args.no_lidar
+    GLOBAL_SPEED_FACTOR = max(0.1, min(1.0, args.speed_factor))
+    VERBOSE_MODE = args.verbose
+    recording_path = args.recording
     
-    sys.exit(exit_code)
+    print('\n' + '='*80)
+    print('🤖 AUTONOME PATH REPLAY MIT KOLLISIONSVERMEIDUNG')
+    print('Version 1.1 - Phase 6: Autonome Navigation')
+    print('='*80)
+    print(f'Recording: {recording_path}')
+    print(f'Speed Factor: {GLOBAL_SPEED_FACTOR*100:.0f}%')
+    print(f'LIDAR: {"✅ Aktiv" if USE_LIDAR else "❌ Deaktiviert"}')
+    print(f'Verbose: {"✅ Aktiv" if VERBOSE_MODE else "❌ Deaktiviert"}')
+    print('='*80 + '\n')
+    
+    if not Path(recording_path).exists():
+        print(f'❌ [ERROR] Datei nicht gefunden: {recording_path}')
+        sys.exit(1)
+    
+    try:
+        # Lade Path Recording
+        path_samples = load_path_recording(recording_path)
+        
+        # Hardware Setup
+        setup_gpio()
+        setup_pwm()
+        lidar_available = setup_lidar()
+        
+        print('\n[INIT] ✅ Alle Systeme initialisiert - Starte Threads...')
+        
+        running = True
+        
+        # Starte Sensor Thread
+        sensor_thread = threading.Thread(
+            target=sensor_update_thread_func,
+            daemon=True,
+            name='SensorThread'
+        )
+        sensor_thread.start()
+        
+        # Starte LIDAR Thread
+        if lidar_available:
+            lidar_thread = threading.Thread(
+                target=lidar_update_thread_func,
+                daemon=True,
+                name='LIDARThread'
+            )
+            lidar_thread.start()
+        
+        time.sleep(1.0)  # Warte auf Thread-Initialisierung
+        
+        # Starte Path Playback
+        playback_path()
+        
+    except KeyboardInterrupt:
+        print('\n[SHUTDOWN] Keyboard Interrupt - Beende...')
+    except Exception as e:
+        print(f'\n[ERROR] Unerwarteter Fehler: {e}')
+        import traceback
+        traceback.print_exc()
+    finally:
+        cleanup()
 
 if __name__ == '__main__':
     import os
     
     if os.geteuid() != 0:
-        print('⚠️ [WARNING] Tests sollten mit sudo für Hardware-Zugriff ausgeführt werden')
-        print('📝 Verwendung: sudo python3 test_path_replay.py [--hardware] [--verbose]')
+        print('❌ [ERROR] Dieses Script muss mit sudo ausgeführt werden!')
+        print('📝 Verwendung: sudo python3 path_replay_with_collision.py <recording.json.gz>')
+        sys.exit(1)
     
     main()

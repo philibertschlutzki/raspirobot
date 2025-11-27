@@ -20,7 +20,7 @@ Optional:
 
 AUTOR: Test Suite Phase 3
 DATUM: 2025-11-27
-VERSION: 1.0
+VERSION: 1.0.1 (Fixed duration key)
 """
 
 import sys
@@ -54,21 +54,19 @@ class ControllerSimulator:
         self.trigger_right = -1.0
         self.a_button = False
         self.b_button = False
-        self.recording_toggle_time = 5.0  # Recording nach 5s starten
+        self.recording_toggle_time = 5.0
         self.recording_toggled = False
     
     def update(self):
         """Simuliert Controller-Bewegungen."""
         elapsed = time.time() - self.time_start
         
-        # Simuliere Vorwärts-Fahrt mit variierender Geschwindigkeit
         import math
         speed = 0.5 + 0.3 * math.sin(elapsed * 0.5)
         
         self.trigger_left = speed
         self.trigger_right = speed
         
-        # Simuliere Tank-Turn alle 10 Sekunden
         if int(elapsed) % 10 < 2:
             self.a_button = True
             if int(elapsed) % 10 == 0:
@@ -77,10 +75,9 @@ class ControllerSimulator:
         else:
             self.a_button = False
         
-        # Toggle Recording nach bestimmter Zeit
         if elapsed > self.recording_toggle_time and not self.recording_toggled:
             self.recording_toggled = True
-            return True  # Signal für Recording-Toggle
+            return True
         
         return False
 
@@ -98,22 +95,17 @@ class LidarSimulator:
         
         scan_data = []
         
-        # Generiere 360° Scan mit 500 Punkten
         import random
         import math
         
         for i in range(500):
             angle = (i / 500.0) * 360.0
             
-            # Simuliere Wände und Hindernisse
             if 80 < angle < 100 or 260 < angle < 280:
-                # Simuliere Wand bei 1.5m
                 distance = 1500 + random.uniform(-50, 50)
             elif 170 < angle < 190:
-                # Simuliere Hindernis bei 0.5m
                 distance = 500 + random.uniform(-30, 30)
             else:
-                # Offener Raum 2-3m
                 distance = 2000 + random.uniform(-200, 200)
             
             quality = random.randint(10, 15)
@@ -132,18 +124,15 @@ def test_imports() -> bool:
     print('\n[TEST 1/6] 📦 Module-Import-Test...')
     
     try:
-        # Test path_recording_system
         from path_recording_system import (
             PathRecordingData, PathRecordingHeader, ControllerSample,
             LidarFrame, EnvironmentMetadata, CalibrationData
         )
         print('  ✅ path_recording_system importiert')
         
-        # Test storage_system
         from storage_system import PathRecordingStorageManager
         print('  ✅ storage_system importiert')
         
-        # Test LIDAR (optional)
         try:
             from rplidar import RPLidar
             print('  ✅ rplidar importiert')
@@ -167,7 +156,6 @@ def test_data_structures() -> bool:
             LidarFrame, EnvironmentMetadata, CalibrationData, CompressionType
         )
         
-        # Test ControllerSample
         sample = ControllerSample(
             timestamp=time.time(),
             left_trigger=0.5,
@@ -178,7 +166,6 @@ def test_data_structures() -> bool:
         )
         print('  ✅ ControllerSample erstellt')
         
-        # Test LidarFrame
         frame = LidarFrame(
             timestamp=time.time(),
             scan_data=[(10, 45.0, 1500.0), (12, 90.0, 2000.0)],
@@ -186,7 +173,6 @@ def test_data_structures() -> bool:
         )
         print('  ✅ LidarFrame erstellt')
         
-        # Test PathRecordingData
         metadata = EnvironmentMetadata(
             session_id="test_session",
             start_timestamp=time.time(),
@@ -247,7 +233,7 @@ def test_controller_simulation(duration: int = 10) -> bool:
                 'timestamp': time.time()
             })
             
-            time.sleep(0.02)  # 50Hz
+            time.sleep(0.02)
         
         print(f'  ✅ {len(samples_collected)} Controller-Samples generiert')
         print(f'  📊 Sample-Rate: {len(samples_collected)/duration:.1f} Hz')
@@ -277,7 +263,7 @@ def test_lidar_simulation(duration: int = 10, failure_mode: bool = False) -> boo
                     'timestamp': time.time()
                 })
             
-            time.sleep(0.1)  # 10Hz
+            time.sleep(0.1)
         
         if not failure_mode:
             print(f'  ✅ {len(scans_collected)} LIDAR-Scans generiert')
@@ -397,7 +383,18 @@ def test_integrated_recording(duration: int = 15, save: bool = False) -> bool:
         print(f'  📊 Statistiken:')
         print(f'     Controller: {stats["controller_samples"]} samples')
         print(f'     LIDAR: {stats["lidar_frames"]} frames')
-        print(f'     Dauer: {stats["duration"]:.2f}s')
+        
+        # FIX: Verwende korrekten Key-Namen
+        duration_key = 'duration_seconds' if 'duration_seconds' in stats else 'duration'
+        actual_duration = stats.get(duration_key, time.time() - start_time)
+        print(f'     Dauer: {actual_duration:.2f}s')
+        
+        # Berechne Sample-Raten
+        if actual_duration > 0:
+            controller_rate = stats["controller_samples"] / actual_duration
+            lidar_rate = stats["lidar_frames"] / actual_duration
+            print(f'     Controller-Rate: {controller_rate:.1f} Hz')
+            print(f'     LIDAR-Rate: {lidar_rate:.1f} Hz')
         
         # Optional: Speichern
         if save:
@@ -415,10 +412,16 @@ def test_integrated_recording(duration: int = 15, save: bool = False) -> bool:
             loaded = storage.load_json(session_id)
             loaded_stats = loaded.get_stats()
             
-            assert loaded_stats['controller_samples'] == stats['controller_samples']
-            assert loaded_stats['lidar_frames'] == stats['lidar_frames']
+            assert loaded_stats['controller_samples'] == stats['controller_samples'], \
+                f"Controller samples mismatch: {loaded_stats['controller_samples']} != {stats['controller_samples']}"
+            assert loaded_stats['lidar_frames'] == stats['lidar_frames'], \
+                f"LIDAR frames mismatch: {loaded_stats['lidar_frames']} != {stats['lidar_frames']}"
             
             print(f'  ✅ Load-Validierung erfolgreich')
+            
+            # Zeige Dateigröße
+            file_size = Path(filepath).stat().st_size
+            print(f'  📁 Dateigröße: {file_size/1024:.1f} KB')
         
         return True
         
@@ -435,7 +438,6 @@ def test_pose_tracking(duration: int = 10) -> bool:
     try:
         import math
         
-        # Simuliere Pose-Updates
         x, y, theta = 0.0, 0.0, 0.0
         wheel_base = 0.20
         
@@ -449,10 +451,9 @@ def test_pose_tracking(duration: int = 10) -> bool:
             current_time = time.time()
             dt = current_time - last_update
             
-            if dt >= 0.02:  # 50Hz
+            if dt >= 0.02:
                 controller.update()
                 
-                # Vereinfachte Odometrie
                 v_left = controller.trigger_left * 0.5
                 v_right = controller.trigger_right * 0.5
                 
@@ -484,7 +485,6 @@ def test_pose_tracking(duration: int = 10) -> bool:
         print(f'  📊 Finale Position:')
         print(f'     X: {x:.2f}m, Y: {y:.2f}m, θ: {math.degrees(theta):.0f}°')
         
-        # Berechne zurückgelegte Strecke
         total_distance = 0.0
         for i in range(1, len(poses)):
             dx = poses[i]['x'] - poses[i-1]['x']
@@ -518,28 +518,16 @@ def run_test_suite(args):
     
     results = []
     
-    # Test 1: Imports
     results.append(('Module-Import', test_imports()))
-    
-    # Test 2: Datenstrukturen
     results.append(('Datenstrukturen', test_data_structures()))
-    
-    # Test 3: Controller-Simulation
     results.append(('Controller-Simulation', test_controller_simulation(duration=5)))
-    
-    # Test 4: LIDAR-Simulation
     results.append(('LIDAR-Simulation', test_lidar_simulation(duration=5, failure_mode=args.no_lidar)))
-    
-    # Test 5: Integriertes Recording
     results.append(('Integriertes Recording', test_integrated_recording(
         duration=args.duration, 
         save=args.save_recording
     )))
-    
-    # Test 6: Pose-Tracking
     results.append(('Pose-Tracking', test_pose_tracking(duration=5)))
     
-    # Zusammenfassung
     print('\n' + '='*80)
     print('📋 TEST-ZUSAMMENFASSUNG')
     print('='*80)
@@ -557,10 +545,6 @@ def run_test_suite(args):
     
     return passed == total
 
-# ============================================================================
-# ENTRY POINT
-# ============================================================================
-
 def main():
     parser = argparse.ArgumentParser(
         description='Automatisierter Test für Xbox Controller + LIDAR System'
@@ -575,10 +559,8 @@ def main():
     
     args = parser.parse_args()
     
-    # Führe Tests aus
     success = run_test_suite(args)
     
-    # Exit Code
     sys.exit(0 if success else 1)
 
 if __name__ == '__main__':

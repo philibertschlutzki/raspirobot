@@ -8,10 +8,9 @@ Ein vollständiges Robotersystem basierend auf **Raspberry Pi 5** mit LIDAR-Mapp
 - **Xbox Controller Integration** für manuelle Steuerung mit Wireless Support
 - **Intelligente Sensorfusion** kombiniert LIDAR- und Ultraschall-Sensordaten
 - **Autonome Navigation** mit Hinderniserkennung und Kollisionsvermeidung
-- **Pfadaufzeichnung \& Replay** für wiederholbare Fahrten
+- **Robustes Pfadaufzeichnung & Replay System** mit Recovery-Strategien
 - **Echtzeitdatenanalyse** mit Performance-Monitoring
 - **Modulare Architektur** für einfache Erweiterungen
-
 
 ## 🛠️ Hardware-Komponenten
 
@@ -23,7 +22,6 @@ Ein vollständiges Robotersystem basierend auf **Raspberry Pi 5** mit LIDAR-Mapp
 - **2x ZS-X11H Motor Controller** - Differentialantrieb
 - **Xbox Wireless Controller** - Manuelle Steuerung
 - **RP03D Mikrowellensensor** - Bewegungserkennung
-
 
 ### GPIO-Pin-Belegung
 
@@ -60,14 +58,12 @@ sudo apt install python3-pip python3-venv git -y
 sudo apt install python3-rpi.gpio python3-serial -y
 ```
 
-
 ### Repository klonen
 
 ```bash
 git clone https://github.com/philibertschlutzki/raspirobot.git
 cd raspirobot
 ```
-
 
 ### Python-Umgebung einrichten
 
@@ -76,7 +72,6 @@ python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 ```
-
 
 ### Hardware-Konfiguration
 
@@ -89,67 +84,47 @@ sudo raspi-config
 # Interface Options > Serial Port > Enable
 ```
 
-
 ## 🎮 Verwendung
 
-### 1. LIDAR-Controller mit Sensorfusion
+### 1. Robustes Path Replay (Empfohlen)
+
+Das neue v3-System bietet verbesserte Fehlerbehandlung und Recovery-Funktionen.
+
+```bash
+cd 4_path_follower
+sudo python3 path_replay_full_v3.py path_recordings/recording_name.json.gz
+```
+
+**Features:**
+- **Adaptives Replay:** Funktioniert auch ohne LIDAR-Daten oder Pose-Informationen (Fallback auf Odometrie).
+- **Collision Recovery:** Weicht Hindernissen aus und steuert automatisch zurück auf den ursprünglichen Pfad.
+- **Hardware-Abstraktion:** Robustes Exception Handling verhindert Abstürze bei Sensor-Problemen.
+
+### 2. LIDAR-Controller mit Sensorfusion
 
 ```bash
 cd 3_Lidarmapper
 python3 lidar_controller_fusion.py
 ```
 
-**Features:**
-
-- Echtzeitdaten von LIDAR und Ultraschall-Sensoren
-- Intelligente Sensorfusion für präzise Umgebungserkennung
-- Automatische Hinderniserkennung und Kollisionsvermeidung
-- Performance-Monitoring mit detaillierter Statistik
-
-
-### 2. Xbox Controller mit Aufzeichnung
+### 3. Xbox Controller mit Aufzeichnung (v3.0.2 - Empfohlen)
 
 ```bash
 cd 3_Lidarmapper
-python3 xbox_controller_with_recording_v2.0.py
+sudo python3 xbox_controller_with_recording_v3.0.2.py
 ```
 
-**Steuerung:**
+**Neue Features in v3.0.2:**
+- **LIDAR Frequenz-Monitoring:** Warnt bei Instabilität.
+- **Pose Estimation:** Speichert Roboter-Pose direkt in der Aufnahme.
+- **Metadaten:** Speichert Hardware-Capabilities für smarteres Replay.
 
-- **Linker Joystick:** Bewegung (Vorwärts/Rückwärts/Lenkung)
-- **A-Taste:** Aufzeichnung starten/stoppen
-- **B-Taste:** Wiedergabe starten/stoppen
-- **X-Taste:** Daten exportieren
-- **Y-Taste:** System herunterfahren
-
-
-### 3. Pfadaufzeichnungssystem
+### 4. Pfadaufzeichnungssystem (Legacy)
 
 ```bash
 cd 1_storage
 python3 path_recording_system.py
 ```
-
-**Funktionen:**
-
-- Kontinuierliche Pfadaufzeichnung mit Sensorwerten
-- Datenexport in JSON- und CSV-Format
-- Replay-Funktionalität für aufgezeichnete Pfade
-
-
-### 4. Storage-System
-
-```bash
-cd 1_storage
-python3 storage_system.py
-```
-
-**Datenverwaltung:**
-
-- Strukturierte Speicherung aller Sensordaten
-- Automatische Backups und Versionierung
-- Datenanalyse und Visualisierungstools
-
 
 ## 📁 Projektstruktur
 
@@ -157,61 +132,33 @@ python3 storage_system.py
 raspirobot/
 ├── 1_storage/                    # Datenspeicherung und -verwaltung
 │   ├── storage_system.py         # Hauptsystem für Datenspeicherung
-│   ├── path_recording_system.py  # Pfadaufzeichnung
-│   ├── dev_test.py              # Entwicklungstests
-│   └── 1_storage_unit_test.py   # Unit-Tests
+│   └── path_recording_system.py  # Pfadaufzeichnung
 ├── 2_recorder/                   # Aufzeichnungssysteme
 ├── 3_Lidarmapper/               # LIDAR-Integration
 │   ├── lidar_controller_fusion.py           # Hauptcontroller mit Sensorfusion
-│   ├── xbox_controller_with_recording_v2.0.py # Xbox-Steuerung
-│   ├── test_lidar_fusion.py     # Test-Suite für LIDAR
-│   └── test_results/            # Testergebnisse
+│   ├── xbox_controller_with_recording_v2.0.py # Legacy Xbox-Steuerung
+│   ├── xbox_controller_with_recording_v3.0.1.py # Vorherige Version
+│   └── xbox_controller_with_recording_v3.0.2.py # Aktuelle Xbox-Steuerung (Empfohlen)
+├── 4_path_follower/             # Wiedergabe-Systeme
+│   ├── path_replay_full_v2.py   # Legacy (LIDAR only)
+│   └── path_replay_full_v3.py   # Robustes Replay System (Empfohlen)
 ├── tests/                       # Allgemeine Tests
-├── requirements.md              # Anforderungsdokumentation
 └── README.md                    # Projektdokumentation
 ```
-
 
 ## 🔧 Technische Details
 
 ### Sensorfusion-Algorithmus
 
-Das System kombiniert LIDAR-Daten (360° Scan) mit Ultraschall-Sensoren für maximale Präzision:
+Das System kombiniert LIDAR-Daten (360° Scan) mit Ultraschall-Sensoren für maximale Präzision.
 
-```python
-# Vereinfachtes Beispiel der Sensorfusion
-def fuse_sensor_data(lidar_data, ultrasonic_data):
-    combined_data = {}
-    for angle in range(360):
-        lidar_distance = lidar_data.get(angle, float('inf'))
-        ultrasonic_distance = get_ultrasonic_for_angle(angle, ultrasonic_data)
-        
-        # Wähle den kleineren Wert für Sicherheit
-        combined_data[angle] = min(lidar_distance, ultrasonic_distance)
-    
-    return combined_data
-```
+### Recovery-Strategie (v3)
 
-
-### Threading-Konzept
-
-- **Sensor-Thread:** Kontinuierliche Datenerfassung (20 Hz)
-- **Control-Thread:** Motorsteuerung und Navigation (10 Hz)
-- **Logging-Thread:** Datenaufzeichnung (5 Hz)
-- **Display-Thread:** Status-Updates (2 Hz)
-
-
-### Koordinatensystem
-
-```
-Robot Frame (0,0 = Roboterzentrum):
-       Y↑ (Vorne)
-       |
-   ←---+---→ X (Rechts)
-       |
-       ↓ (Hinten)
-```
-
+Das v3-System verwendet eine State-Machine für robustes Verhalten:
+1. **REPLAY:** Normales Abfahren der aufgezeichneten Steuerbefehle.
+2. **AVOID:** Bei Hindernis (<20cm) wird gestoppt oder ausgewichen.
+3. **RECOVER:** Sobald der Weg frei ist, berechnet ein Path-Planner (Pure Pursuit) den Weg zum nächsten Punkt auf der Original-Trajektorie.
+4. **RESUME:** Wenn der Roboter wieder auf dem Pfad ist, wird das Replay fortgesetzt.
 
 ## 🧪 Testing
 
@@ -220,30 +167,18 @@ Robot Frame (0,0 = Roboterzentrum):
 ```bash
 cd 1_storage
 python3 1_storage_unit_test.py
-
-cd 3_Lidarmapper
-python3 test_lidar_fusion.py
 ```
 
+### Simulation / Mocking
 
-### Integration Tests
-
-```bash
-cd tests
-python3 -m pytest -v
-```
-
+Das `path_replay_full_v3.py` Skript erkennt automatisch fehlende Hardware-Bibliotheken und wechselt in einen eingeschränkten Modus, was grundlegende Tests auch ohne Roboter ermöglicht (siehe `ANALYSE_UND_OPTIMIERUNG.md`).
 
 ## 📊 Performance-Monitoring
 
 Das System bietet detaillierte Performance-Metriken:
-
 - **LIDAR Scan Rate:** ~10 Hz
 - **Sensor Fusion Rate:** ~20 Hz
 - **Motor Update Rate:** ~50 Hz
-- **Memory Usage:** Kontinuierliche Überwachung
-- **CPU Load:** Pro Thread verfolgung
-
 
 ## 🔒 Sicherheitsfeatures
 
@@ -252,7 +187,6 @@ Das System bietet detaillierte Performance-Metriken:
 - **Watchdog-Timer** für System-Überwachung
 - **Graceful Shutdown** bei kritischen Fehlern
 - **Sensor-Redundanz** durch LIDAR + Ultraschall
-
 
 ## 🤝 Contributing
 
@@ -266,28 +200,11 @@ Das System bietet detaillierte Performance-Metriken:
 
 Dieses Projekt steht unter der MIT-Lizenz. Siehe `LICENSE` Datei für Details.
 
-## 🙏 Danksagungen
-
-- RPLIDAR SDK für die LIDAR-Integration
-- RPi.GPIO Community für GPIO-Unterstützung
-- Xbox Controller Reverse Engineering Community
-
-
 ## 📞 Support
 
 Bei Fragen oder Problemen:
-
 - **Issues:** [GitHub Issues](https://github.com/philibertschlutzki/raspirobot/issues)
-- **Documentation:** Siehe `requirements.md` für detaillierte Anforderungen
 
 ***
 
-**Status:** 🟢 Aktiv entwickelt | **Version:** 2.0 | **Python:** 3.9+
-<span style="display:none">[^2]</span>
-
-<div align="center">⁂</div>
-
-[^1]: https://github.com/philibertschlutzki/raspirobot
-
-[^2]: https://github.com/philib
-
+**Status:** 🟢 Aktiv entwickelt | **Version:** 3.0.2 | **Python:** 3.9+

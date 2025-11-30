@@ -1,0 +1,4 @@
+rpi_hardware_pwm
+numpy
+RPi.GPIO
+rplidar-robotic

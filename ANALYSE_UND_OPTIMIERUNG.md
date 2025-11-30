@@ -20,34 +20,34 @@ Die Analyse der vorhandenen Aufzeichnungen im Ordner `path_recordings/` zeigt un
 2.  **LIDAR-Frequenz:** Für robustes Scan-Matching sollte die LIDAR-Aufzeichnungsfrequenz geprüft werden (aktuell ca. 10Hz, was gut ist).
 3.  **Pose-Estimation während der Aufnahme:** Es ist vorteilhaft, wenn der Recorder bereits eine Pose schätzt und speichert, anstatt dies nur dem Replay-Skript zu überlassen.
 
-## 2. Konzept für virtuelles Testvorgehen
+## 2. Detailliertes Konzept für optimierte Aufzeichnung (Umgesetzt in v3.0.2)
 
-Da Tests auf der echten Hardware zeitaufwendig und riskant sind, wird ein Mocking-Ansatz empfohlen.
+Basierend auf der Analyse wurden in Version 3.0.2 des Recording-Skripts folgende Maßnahmen implementiert, um die Datenqualität für autonome Wiedergabe zu maximieren:
 
-### Ansatz: Hardware-Abstraktions-Layer (HAL) Mocking
+### A. Metadaten-Erweiterung ("Capabilities")
+Um Inkonsistenzen zu vermeiden, schreibt der Recorder nun explizite `capabilities` in den Header jeder Datei.
 
-Anstatt die Hardware direkt anzusprechen, sollte `path_replay_full_v3.py` Hardware-Klassen verwenden, die sich "mocken" lassen.
+*   **Implementierung:** Das `hardware_info`-Objekt wurde um ein `capabilities`-Dictionary erweitert:
+    ```json
+    "capabilities": {
+        "has_lidar": true,
+        "has_pose": true,
+        "has_ultrasonic": true
+    }
+    ```
+*   **Nutzen:** Das Replay-Skript (`path_replay_full_v3.py`) kann beim Laden sofort entscheiden, welcher Modus (LIDAR-Matching, reine Odometrie oder Hybrid) verwendet werden soll, ohne die Daten erst scannen zu müssen.
 
-**Komponenten:**
+### B. Integrierte Pose-Estimation (Odometrie)
+Anstatt die Roboter-Pose erst nachträglich beim Replay zu schätzen, berechnet der Recorder die Pose nun in Echtzeit während der Fahrt.
 
-1.  **VirtualLidar:**
-    *   Lädt eine echte Aufzeichnung (`lidar_frames`).
-    *   Gibt im Test-Modus basierend auf der aktuellen "virtuellen Zeit" oder "virtuellen Position" den passenden Scan zurück.
-    *   Kann Rauschen (Noise) hinzufügen, um Robustheit zu testen.
+*   **Vorteil:** Dies entlastet das Replay-Skript und stellt sicher, dass die "Ground Truth" (sofern Odometrie als solche gelten kann) direkt mit den Sensor-Daten synchronisiert ist.
+*   **Synchronisation:** Die Pose (`x`, `y`, `theta`) wird exakt zum Zeitpunkt des Controller-Samplings gespeichert und als Teil des `ControllerSample`-Objekts abgelegt.
 
-2.  **VirtualMotorController:**
-    *   Akzeptiert PWM-Befehle.
-    *   Simuliert ein einfaches kinematisches Modell (Differential Drive), um die virtuelle Position (`robot_x`, `robot_y`, `theta`) zu aktualisieren.
+### C. LIDAR-Frequenz-Monitoring
+Eine stabile Scan-Rate ist kritisch für SLAM und Scan-Matching.
 
-3.  **VirtualEnvironment (Collision Simulation):**
-    *   Definiert virtuelle Hindernisse.
-    *   Wenn die virtuelle Position einem Hindernis zu nahe kommt, melden die virtuellen Ultraschallsensoren oder das virtuelle LIDAR entsprechend kurze Distanzen.
-
-### Test-Szenarien
-
-1.  **Happy Path:** Replay einer Aufzeichnung in einer perfekten Welt (kein Schlupf). Ziel: Endposition == Zielposition.
-2.  **Sensor Failure:** Mitten im Replay liefert das LIDAR `None` oder Fehler. Das Script darf nicht abstürzen.
-3.  **Obstacle Avoidance:** Ein virtuelles Hindernis wird auf dem Pfad platziert. Das Script muss stoppen oder ausweichen und dann versuchen, zum Pfad zurückzukehren.
+*   **Mechanismus:** Ein neuer Algorithmus im `lidar_update_thread` berechnet die gleitende Durchschnittsfrequenz der eintreffenden Scans.
+*   **Feedback:** Das System warnt den Benutzer über die Konsole, wenn die Frequenz signifikant von den gewünschten 10Hz abweicht (z.B. durch USB-Latenzen oder CPU-Last). Dies verhindert unbemerktes "Low-Quality-Recording".
 
 ## 3. Fehlerhandhabung und Robustheit (für v3 Script)
 

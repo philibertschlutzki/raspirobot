@@ -107,14 +107,19 @@ cd 3_Lidarmapper
 python3 lidar_controller_fusion.py
 ```
 
-### 3. Xbox Controller mit Aufzeichnung
+### 3. Xbox Controller mit Aufzeichnung (v3.0.2 - Empfohlen)
 
 ```bash
 cd 3_Lidarmapper
-python3 xbox_controller_with_recording_v2.0.py
+sudo python3 xbox_controller_with_recording_v3.0.2.py
 ```
 
-### 4. Pfadaufzeichnungssystem
+**Neue Features in v3.0.2:**
+- **LIDAR Frequenz-Monitoring:** Warnt bei Instabilität.
+- **Pose Estimation:** Speichert Roboter-Pose direkt in der Aufnahme.
+- **Metadaten:** Speichert Hardware-Capabilities für smarteres Replay.
+
+### 4. Pfadaufzeichnungssystem (Legacy)
 
 ```bash
 cd 1_storage
@@ -131,7 +136,9 @@ raspirobot/
 ├── 2_recorder/                   # Aufzeichnungssysteme
 ├── 3_Lidarmapper/               # LIDAR-Integration
 │   ├── lidar_controller_fusion.py           # Hauptcontroller mit Sensorfusion
-│   └── xbox_controller_with_recording_v2.0.py # Xbox-Steuerung
+│   ├── xbox_controller_with_recording_v2.0.py # Legacy Xbox-Steuerung
+│   ├── xbox_controller_with_recording_v3.0.1.py # Vorherige Version
+│   └── xbox_controller_with_recording_v3.0.2.py # Aktuelle Xbox-Steuerung (Empfohlen)
 ├── 4_path_follower/             # Wiedergabe-Systeme
 │   ├── path_replay_full_v2.py   # Legacy (LIDAR only)
 │   └── path_replay_full_v3.py   # Robustes Replay System (Empfohlen)
@@ -200,4 +207,4 @@ Bei Fragen oder Problemen:
 
 ***
 
-**Status:** 🟢 Aktiv entwickelt | **Version:** 3.0 | **Python:** 3.9+
+**Status:** 🟢 Aktiv entwickelt | **Version:** 3.0.2 | **Python:** 3.9+

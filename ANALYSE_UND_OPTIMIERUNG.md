@@ -1,64 +1,69 @@
-# Analyse und Optimierung der Pfadaufzeichnung und Wiedergabe
+# Analyse, Architektur und Roadmap zur Autonomie
 
-## 1. Analyse der Pfadaufzeichnungen
+Dieses Dokument definiert den strategischen Pfad vom aktuellen Status Quo (manuelle Fahrt mit synchronisierter Sensordaten-Aufzeichnung) hin zum finalen Ziel: **Eine vollständig autonome, native Python-basierte Point-to-Point Navigation.**
 
-Die Analyse der vorhandenen Aufzeichnungen im Ordner `path_recordings/` zeigt unterschiedliche Datenstrukturen, was auf verschiedene Versionen oder Konfigurationen des Aufzeichnungssystems hindeutet.
+## 1. Status Quo Analyse (v3.0.2)
 
-### Befunde
+Das System verfügt über ein extrem stabiles, hardwarenahes Fundament:
 
-*   **Inkonsistenz der Daten:**
-    *   Einige Aufzeichnungen (z.B. `...203612...`) enthalten vollständige `lidar_frames` und Metadaten.
-    *   Andere Aufzeichnungen (z.B. `...204615...`) enthalten **keine** `lidar_frames` und keine vorberechneten `pose`-Daten in den `controller_samples`.
-*   **Abhängigkeit von Odometrie:**
-    *   Wenn keine LIDAR-Daten vorhanden sind, ist das Replay-Script blind für die Umgebung und verlässt sich rein auf "Dead Reckoning" (Replay der Motorbefehle). Dies führt ohne Feedback-Schleife schnell zu Abweichungen.
-*   **Fehlende Validierung:**
-    *   Das aktuelle System prüft beim Laden nicht strikt, ob alle für den gewünschten Modus (z.B. "Smart Replay") notwendigen Daten vorhanden sind.
+* **Multithreading:** Ultraschall, LIDAR (mit Frequenzüberwachung), Motorsteuerung und Recording laufen asynchron und threadsicher.
+* **Sensorfusion:** Kollisionen werden hybrid über Ultraschall und LIDAR-Zonen im Nahbereich zuverlässig erkannt.
+* **Datenqualität:** Komprimierte JSON-Aufzeichnungen (`.json.gz`) beinhalten saubere 10Hz LIDAR-Frames, Metadaten und Motor-PWM-Werte.
 
-### Optimierungsvorschläge für die Aufzeichnung (Recorder)
+**Architektur-Entscheidung:** Das bisherige Ziel "Teach-and-Repeat" (blindes Abspielen von Controller-Eingaben) wird durch echte Autonomie ersetzt. Da keine Rad-Encoder verbaut sind, muss der unvermeidbare Drift der reinen PWM-Odometrie vollständig durch den LIDAR korrigiert werden.
 
-1.  **Erzwungene Schemata:** Der Recorder sollte Metadaten über die *Fähigkeiten* der Aufzeichnung speichern (z.B. `has_lidar: true`, `has_pose: true`).
-2.  **LIDAR-Frequenz:** Für robustes Scan-Matching sollte die LIDAR-Aufzeichnungsfrequenz geprüft werden (aktuell ca. 10Hz, was gut ist).
-3.  **Pose-Estimation während der Aufnahme:** Es ist vorteilhaft, wenn der Recorder bereits eine Pose schätzt und speichert, anstatt dies nur dem Replay-Skript zu überlassen.
+---
 
-## 2. Detailliertes Konzept für optimierte Aufzeichnung (Umgesetzt in v3.0.2)
+## 2. Entwicklungs-Roadmap
 
-Basierend auf der Analyse wurden in Version 3.0.2 des Recording-Skripts folgende Maßnahmen implementiert, um die Datenqualität für autonome Wiedergabe zu maximieren:
+Um komplexe Algorithmen mit KI-Agenten effizient zu entwickeln, wird die Entwicklung von der Hardware auf den Desktop entkoppelt.
 
-### A. Metadaten-Erweiterung ("Capabilities")
-Um Inkonsistenzen zu vermeiden, schreibt der Recorder nun explizite `capabilities` in den Header jeder Datei.
+### Phase 5: Offline-Simulator & Data-Player
 
-*   **Implementierung:** Das `hardware_info`-Objekt wurde um ein `capabilities`-Dictionary erweitert:
-    ```json
-    "capabilities": {
-        "has_lidar": true,
-        "has_pose": true,
-        "has_ultrasonic": true
-    }
-    ```
-*   **Nutzen:** Das Replay-Skript (`path_replay_full_v3.py`) kann beim Laden sofort entscheiden, welcher Modus (LIDAR-Matching, reine Odometrie oder Hybrid) verwendet werden soll, ohne die Daten erst scannen zu müssen.
+Bevor autonome Logik auf dem Pi läuft, muss sie iterativ am PC entwickelt werden können.
 
-### B. Integrierte Pose-Estimation (Odometrie)
-Anstatt die Roboter-Pose erst nachträglich beim Replay zu schätzen, berechnet der Recorder die Pose nun in Echtzeit während der Fahrt.
+* **Ziel:** Ein Python-Tool (`data_player.py`), das die bestehenden `recording.json.gz` Dateien einliest.
+* **Funktion:** Der Player simuliert den Roboter-Stream und wirft die LIDAR-Scans und PWM-Werte exakt im originalen Timing-Intervall (z.B. 10Hz) an eine API-Schnittstelle aus.
+* **Nutzen:** Erlaubt das Testen und Visualisieren (z.B. via `matplotlib` oder `Pygame`) von Map-Building und SLAM in Sekunden statt in Minuten realer Fahrzeit.
 
-*   **Vorteil:** Dies entlastet das Replay-Skript und stellt sicher, dass die "Ground Truth" (sofern Odometrie als solche gelten kann) direkt mit den Sensor-Daten synchronisiert ist.
-*   **Synchronisation:** Die Pose (`x`, `y`, `theta`) wird exakt zum Zeitpunkt des Controller-Samplings gespeichert und als Teil des `ControllerSample`-Objekts abgelegt.
+### Phase 6: Native Python SLAM-Engine (Mapping)
 
-### C. LIDAR-Frequenz-Monitoring
-Eine stabile Scan-Rate ist kritisch für SLAM und Scan-Matching.
+Anstatt Blackbox-Bibliotheken (ROS/Gmapping) zu nutzen, wird ein eigener Mapping-Algorithmus entwickelt.
 
-*   **Mechanismus:** Ein neuer Algorithmus im `lidar_update_thread` berechnet die gleitende Durchschnittsfrequenz der eintreffenden Scans.
-*   **Feedback:** Das System warnt den Benutzer über die Konsole, wenn die Frequenz signifikant von den gewünschten 10Hz abweicht (z.B. durch USB-Latenzen oder CPU-Last). Dies verhindert unbemerktes "Low-Quality-Recording".
+* **Konzept:** Eine Mapping-Fahrt wird manuell mit dem Xbox-Controller durchgeführt.
+* **Algorithmus:** Nutzung von Iterative Closest Point (ICP) oder korrelationsbasiertem Scan-Matching, um die LIDAR-Scans übereinander zu legen und den Odometrie-Drift auszugleichen.
+* **Speicherung:** Generierung eines 2D Occupancy Grids. Dieses wird maschinenlesbar, ressourcenschonend als numerisches Array (`.npy` via Numpy) zusammen mit einer Metadaten-Datei (`.json` für Resolution/Origin) gespeichert.
 
-## 3. Fehlerhandhabung und Robustheit (für v3 Script)
+### Phase 7: Global Localization (Lösung des "Kidnapped Robot Problem")
 
-Für `path_replay_full_v3.py` werden folgende Mechanismen implementiert:
+Der Roboter muss beim Einschalten wissen, wo er sich auf der zuvor gespeicherten Karte befindet, unabhängig vom physischen Startpunkt.
 
-*   **Graceful Degradation:**
-    *   LIDAR fällt aus -> Fallback auf Odometrie (Warnung).
-    *   Odometrie wird unplausibel -> Nothalt.
-*   **Recovery nach Ausweichen:**
-    *   Nach einer Kollisionsvermeidung (z.B. Bremsen/Ausweichen) merkt sich das System den Index des aktuellen Samples.
-    *   Ein Path-Planner (z.B. Pure Pursuit Logik) versucht, den Roboter zurück auf die Trajektorie des nächsten Samples zu lenken, anstatt stur die alten Befehle abzuspielen.
-*   **Input-Validierung:**
-    *   Prüfung der JSON-Struktur vor dem Start.
-    *   Warnung bei fehlenden Sensordaten in der Aufzeichnung.
+* **Konzept:** Implementierung eines Partikelfilters (Monte Carlo Localization - MCL).
+* **Ablauf:** Der Roboter streut initial tausende virtuelle "Partikel" (mögliche Positionen) über die geladene `.npy`-Karte. Durch Drehung oder erste Bewegungen werden aktuelle LIDAR-Scans mit der Karte abgeglichen. Unplausible Partikel werden gelöscht, bis die Wolke auf die reale Position des Roboters konvergiert.
+
+### Phase 8: Point-to-Point Navigations-Engine
+
+Ersetzung der manuellen Steuerung durch vollautonome Zielfindung.
+
+* **Eingabe:** Ein einfaches CLI-Command übergibt die X/Y-Zielkoordinaten im Karten-Referenzsystem.
+* **Global Planner:** Implementierung von A* (A-Star) oder Dijkstra auf dem `.npy`-Grid, um den kürzesten bekannten Weg vom aktuellen MCL-Standort zum Ziel zu finden.
+* **Local Planner:** Implementierung einer dynamischen Ausweichlogik (z.B. Dynamic Window Approach - DWA). Weicht spontanen Hindernissen (z.B. laufende Personen) aus und führt den Roboter weich auf die globale Route zurück.
+
+### Phase 9: Performance-Optimierung & Hardening
+
+Erst wenn die Logik (bei sehr langsamer Fahrt) mathematisch korrekt funktioniert, wird auf Geschwindigkeit optimiert.
+
+* **Profilierung:** Identifizierung von Bottlenecks in der Python-Ausführung.
+* **Optimierung:** Auslagerung rechenintensiver Grid-Berechnungen (z.B. Raycasting für den Partikelfilter) in vektorisierte Numpy-Operationen.
+* **Architektur:** Verlagerung spezifischer Engine-Teile in dedizierte Multiprocessing-Prozesse, um alle Kerne des Raspberry Pi 5 auszunutzen.
+
+---
+
+## 3. Test- & Validierungsstrategie
+
+Jede Phase erfordert strikte Abnahmekriterien:
+
+1. **Phase 5 (Simulator):** Das Replay muss exakt deterministisch sein (gleiche Datei erzeugt 100% gleichen Output-Stream).
+2. **Phase 6 (SLAM):** Die generierte `.npy`-Karte darf bei Schleifenfahrten ("Loop Closure") keine doppelten Wände oder starken Verschmierungen (>10cm Drift) aufweisen.
+3. **Phase 7 (Localization):** Der Roboter muss seine Position in 9 von 10 Fällen nach maximal einer 360-Grad-Drehung korrekt auf der Karte verorten können.
+4. **Phase 8 (Navigation):** Anfahren von 5 unterschiedlichen Koordinaten ohne Kollision bei dynamisch in den Weg gestellten Hindernissen.

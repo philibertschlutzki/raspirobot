@@ -1,27 +1,24 @@
 # RaspiRobot 🤖
 
-Ein vollständiges Robotersystem basierend auf **Raspberry Pi 5** mit LIDAR-Mapping, Xbox Controller-Steuerung und intelligenter Sensorfusion für autonome Navigation und Pfadaufzeichnung.
+Eine fortschrittliche Entwicklungsplattform für autonome Indoor-Navigation basierend auf einem **Raspberry Pi 5**. Das Projekt fokussiert sich auf die Entwicklung einer nativen, vollständig in Python geschriebenen SLAM- und Navigations-Engine – ganz ohne Rückgriff auf fertige Frameworks wie ROS oder Rad-Encoder (Odometrie).
 
-## ✨ Features
+Das System nutzt fortschrittliche Sensorfusion (RPLIDAR C1 + Ultraschall) und KI-gestützte Algorithmen-Entwicklung, um das "Kidnapped Robot Problem" zu lösen und Point-to-Point Navigation in unbekannten Umgebungen zu ermöglichen.
 
-- **LIDAR-basiertes Mapping** mit RPLIDAR C1 für 360° Umgebungserfassung
-- **Xbox Controller Integration** für manuelle Steuerung mit Wireless Support
-- **Intelligente Sensorfusion** kombiniert LIDAR- und Ultraschall-Sensordaten
-- **Autonome Navigation** mit Hinderniserkennung und Kollisionsvermeidung
-- **Robustes Pfadaufzeichnung & Replay System** mit Recovery-Strategien
-- **Echtzeitdatenanalyse** mit Performance-Monitoring
-- **Modulare Architektur** für einfache Erweiterungen
+## ✨ Kern-Vision & Features
+
+- **Native Python SLAM-Engine:** Eigenentwickeltes Simultaneous Localization and Mapping (basierend auf Numpy/ICP), das Map-Drift ausschließlich über LIDAR-Scan-Matching korrigiert.
+- **Global Localization (Kidnapped Robot):** Der Roboter kann an einem beliebigen Punkt in der zuvor kartografierten Wohnung abgesetzt werden und findet seine Position selbstständig (z.B. via Monte Carlo Localization / Partikelfilter).
+- **Point-to-Point Navigation:** Zieleingabe über CLI (z.B. `--x 2.5 --y 1.0`). Eine Kombination aus globalem Planer (A*/Dijkstra) und lokalem Planer sorgt für die sichere, hindernisvermeidende Fahrt zum Ziel.
+- **Offline-Simulation & Data Replay:** Ein integrierter Simulator ermöglicht es, auf dem RPi aufgezeichnete Sensor-Datensätze (`.json.gz`) am PC abzuspielen, um Navigations- und SLAM-Algorithmen rasant iterieren zu können.
+- **Hardware-Abstraktion & Sensorfusion:** Robuste Multithreading-Architektur, die Ultraschall-Nahbereichssensorik (<30cm) mit 360°-LIDAR-Daten fusioniert.
 
 ## 🛠️ Hardware-Komponenten
 
-### Hauptkomponenten
-
-- **Raspberry Pi 5 (8GB)** - Zentrale Steuereinheit
-- **RPLIDAR C1** - 360° Laser-Distanzsensor
-- **4x HC-SR04** - Ultraschall-Sensoren (Front, Back, Links, Rechts)
-- **2x ZS-X11H Motor Controller** - Differentialantrieb
-- **Xbox Wireless Controller** - Manuelle Steuerung
-- **RP03D Mikrowellensensor** - Bewegungserkennung
+- **Zentrale Steuereinheit:** Raspberry Pi 5 (8GB)
+- **Hauptsensor:** RPLIDAR C1 (360° Laser-Distanzsensor)
+- **Nahbereichssensorik:** 4x HC-SR04 Ultraschall-Sensoren (Front, Back, Links, Rechts)
+- **Antrieb:** 2x DC-Motoren mit ZS-X11H Controllern (Differentialantrieb, PWM-gesteuert)
+- **Manuelle Kontrolle:** Xbox Wireless Controller (für Mapping-Fahrten)
 
 ### GPIO-Pin-Belegung
 
@@ -45,166 +42,66 @@ Ein vollständiges Robotersystem basierend auf **Raspberry Pi 5** mit LIDAR-Mapp
 
 ## 🚀 Installation
 
-### Voraussetzungen
-
 ```bash
 # System-Updates
 sudo apt update && sudo apt upgrade -y
 
-# Python-Abhängigkeiten
-sudo apt install python3-pip python3-venv git -y
+# Python-Abhängigkeiten & Hardware-Bibliotheken
+sudo apt install python3-pip python3-venv git python3-rpi.gpio python3-serial -y
 
-# Hardware-Bibliotheken
-sudo apt install python3-rpi.gpio python3-serial -y
-```
-
-### Repository klonen
-
-```bash
+# Repository klonen
 git clone https://github.com/philibertschlutzki/raspirobot.git
 cd raspirobot
-```
 
-### Python-Umgebung einrichten
-
-```bash
+# Python-Umgebung einrichten
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### Hardware-Konfiguration
+## 🎮 Workflow & Verwendung
 
-```bash
-# GPIO-Berechtigung für Benutzer
-sudo usermod -a -G gpio $USER
+Das Projekt befindet sich in aktiver Entwicklung. Der aktuelle Workflow teilt sich in Datenerfassung, Offline-Entwicklung und (zukünftig) Autonomie.
 
-# Serial-Interface aktivieren
-sudo raspi-config
-# Interface Options > Serial Port > Enable
-```
+### 1. Mapping & Datenerfassung (Aktueller Fokus)
 
-## 🎮 Verwendung
-
-### 1. Robustes Path Replay (Empfohlen)
-
-Das neue v3-System bietet verbesserte Fehlerbehandlung und Recovery-Funktionen.
-
-```bash
-cd 4_path_follower
-sudo python3 path_replay_full_v3.py path_recordings/recording_name.json.gz
-```
-
-**Features:**
-- **Adaptives Replay:** Funktioniert auch ohne LIDAR-Daten oder Pose-Informationen (Fallback auf Odometrie).
-- **Collision Recovery:** Weicht Hindernissen aus und steuert automatisch zurück auf den ursprünglichen Pfad.
-- **Hardware-Abstraktion:** Robustes Exception Handling verhindert Abstürze bei Sensor-Problemen.
-
-### 2. LIDAR-Controller mit Sensorfusion
-
-```bash
-cd 3_Lidarmapper
-python3 lidar_controller_fusion.py
-```
-
-### 3. Xbox Controller mit Aufzeichnung (v3.0.2 - Empfohlen)
+Fahre den Roboter manuell durch die Umgebung, um hochwertige LIDAR-Daten für die Offline-SLAM-Entwicklung aufzuzeichnen.
 
 ```bash
 cd 3_Lidarmapper
 sudo python3 xbox_controller_with_recording_v3.0.2.py
 ```
 
-**Neue Features in v3.0.2:**
-- **LIDAR Frequenz-Monitoring:** Warnt bei Instabilität.
-- **Pose Estimation:** Speichert Roboter-Pose direkt in der Aufnahme.
-- **Metadaten:** Speichert Hardware-Capabilities für smarteres Replay.
+### 2. Offline-Simulator (In Entwicklung)
 
-### 4. Pfadaufzeichnungssystem (Legacy)
+Spiele die aufgezeichneten `.json.gz`-Dateien am Entwicklungs-PC ab, um die Python-SLAM-Algorithmen ohne reale Roboter-Hardware zu trainieren und zu testen.
 
 ```bash
-cd 1_storage
-python3 path_recording_system.py
+cd 5_simulation
+python3 data_player.py --record path_recordings/mein_datensatz.json.gz
 ```
 
-## 📁 Projektstruktur
+### 3. Autonome Navigation (Roadmap)
 
-```
-raspirobot/
-├── 1_storage/                    # Datenspeicherung und -verwaltung
-│   ├── storage_system.py         # Hauptsystem für Datenspeicherung
-│   └── path_recording_system.py  # Pfadaufzeichnung
-├── 2_recorder/                   # Aufzeichnungssysteme
-├── 3_Lidarmapper/               # LIDAR-Integration
-│   ├── lidar_controller_fusion.py           # Hauptcontroller mit Sensorfusion
-│   ├── xbox_controller_with_recording_v2.0.py # Legacy Xbox-Steuerung
-│   ├── xbox_controller_with_recording_v3.0.1.py # Vorherige Version
-│   └── xbox_controller_with_recording_v3.0.2.py # Aktuelle Xbox-Steuerung (Empfohlen)
-├── 4_path_follower/             # Wiedergabe-Systeme
-│   ├── path_replay_full_v2.py   # Legacy (LIDAR only)
-│   └── path_replay_full_v3.py   # Robustes Replay System (Empfohlen)
-├── tests/                       # Allgemeine Tests
-└── README.md                    # Projektdokumentation
-```
-
-## 🔧 Technische Details
-
-### Sensorfusion-Algorithmus
-
-Das System kombiniert LIDAR-Daten (360° Scan) mit Ultraschall-Sensoren für maximale Präzision.
-
-### Recovery-Strategie (v3)
-
-Das v3-System verwendet eine State-Machine für robustes Verhalten:
-1. **REPLAY:** Normales Abfahren der aufgezeichneten Steuerbefehle.
-2. **AVOID:** Bei Hindernis (<20cm) wird gestoppt oder ausgewichen.
-3. **RECOVER:** Sobald der Weg frei ist, berechnet ein Path-Planner (Pure Pursuit) den Weg zum nächsten Punkt auf der Original-Trajektorie.
-4. **RESUME:** Wenn der Roboter wieder auf dem Pfad ist, wird das Replay fortgesetzt.
-
-## 🧪 Testing
-
-### Unit Tests ausführen
+Startet die Lokalisierung und fährt autonom zum definierten Ziel.
 
 ```bash
-cd 1_storage
-python3 1_storage_unit_test.py
+cd 6_autonomy
+python3 navigate.py --x 2.5 --y 1.0
 ```
 
-### Simulation / Mocking
+## 🗺️ Projekt-Roadmap
 
-Das `path_replay_full_v3.py` Skript erkennt automatisch fehlende Hardware-Bibliotheken und wechselt in einen eingeschränkten Modus, was grundlegende Tests auch ohne Roboter ermöglicht (siehe `ANALYSE_UND_OPTIMIERUNG.md`).
+Für eine detaillierte technische Übersicht der anstehenden Entwicklungsphasen (Offline-Simulator -> SLAM -> Lokalisierung -> Path Planning), siehe die [ANALYSE_UND_OPTIMIERUNG.md](ANALYSE_UND_OPTIMIERUNG.md).
 
-## 📊 Performance-Monitoring
+## 🔒 Sicherheitsfeatures & Robustheit
 
-Das System bietet detaillierte Performance-Metriken:
-- **LIDAR Scan Rate:** ~10 Hz
-- **Sensor Fusion Rate:** ~20 Hz
-- **Motor Update Rate:** ~50 Hz
+* Hardware-Notaus über Controller.
+* "Graceful Degradation": Das System warnt bei abfallender LIDAR-Frequenz und stoppt bei Sensorverlust.
+* Dynamische Hindernisvermeidung durch gekoppelte Ultraschall/LIDAR-Kollisionszonen.
 
-## 🔒 Sicherheitsfeatures
+## 🤝 Contributing & KI-Entwicklung
 
-- **Notaus-Funktion** über Xbox Controller (Start + Back)
-- **Automatische Kollisionsvermeidung** bei < 30cm Hindernisabstand
-- **Watchdog-Timer** für System-Überwachung
-- **Graceful Shutdown** bei kritischen Fehlern
-- **Sensor-Redundanz** durch LIDAR + Ultraschall
+Dieses Projekt wird maßgeblich durch die Zusammenarbeit mit fortschrittlichen KI-Coding-Agenten entwickelt. Fokus liegt auf sauberem, modularem Python-Code und algorithmischem Verständnis statt auf Blackbox-Frameworks.
 
-## 🤝 Contributing
-
-1. Fork des Repositories
-2. Feature-Branch erstellen (`git checkout -b feature/AmazingFeature`)
-3. Änderungen committen (`git commit -m 'Add some AmazingFeature'`)
-4. Branch pushen (`git push origin feature/AmazingFeature`)
-5. Pull Request öffnen
-
-## 📝 Lizenz
-
-Dieses Projekt steht unter der MIT-Lizenz. Siehe `LICENSE` Datei für Details.
-
-## 📞 Support
-
-Bei Fragen oder Problemen:
-- **Issues:** [GitHub Issues](https://github.com/philibertschlutzki/raspirobot/issues)
-
-***
-
-**Status:** 🟢 Aktiv entwickelt | **Version:** 3.0.2 | **Python:** 3.9+
+**Lizenz:** MIT License

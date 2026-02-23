@@ -14,11 +14,13 @@ except ImportError:
 try:
     from .data_models import PathRecordingData, RobotPose
     from .slam_engine import SLAMEngine
+    from .replay_streamer import ReplayStreamer
 except ImportError:
     # Add path logic
     sys.path.append(os.path.dirname(os.path.abspath(__file__)))
     from data_models import PathRecordingData, RobotPose
     from slam_engine import SLAMEngine
+    from replay_streamer import ReplayStreamer
 
 def run_replay(input_file: str, output_dir: str = "results", show_gui: bool = True):
     if not os.path.exists(output_dir):
@@ -26,14 +28,10 @@ def run_replay(input_file: str, output_dir: str = "results", show_gui: bool = Tr
 
     print(f"Loading {input_file}...")
     try:
-        with gzip.open(input_file, 'rt', encoding='utf-8') as f:
-            data = json.load(f)
-            session = PathRecordingData(**data)
+        streamer = ReplayStreamer(input_file)
     except Exception as e:
-        print(f"Error loading file: {e}")
+        print(f"Error initializing streamer: {e}")
         return
-
-    print(f"Loaded {len(session.frames)} frames.")
 
     slam = SLAMEngine()
 
@@ -49,7 +47,7 @@ def run_replay(input_file: str, output_dir: str = "results", show_gui: bool = Tr
 
     last_pose = None
 
-    for i, frame in enumerate(session.frames):
+    for i, frame in enumerate(streamer.stream_frames()):
         # Get Odometry Guess
         if frame.controller_states:
             guess_pose = frame.controller_states[-1].pose

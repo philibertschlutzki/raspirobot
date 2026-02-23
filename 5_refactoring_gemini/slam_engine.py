@@ -151,8 +151,8 @@ class SLAMEngine:
         else:
             self.reference_points = np.vstack((self.reference_points, global_points))
             if len(self.reference_points) > 10000:
-                indices = np.random.choice(len(self.reference_points), 10000, replace=False)
-                self.reference_points = self.reference_points[indices]
+                # Deterministic FIFO downsampling (keep newest 10000)
+                self.reference_points = self.reference_points[-10000:]
 
         indices = (global_points / self.resolution + self.origin).astype(int)
 

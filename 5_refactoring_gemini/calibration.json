@@ -1,0 +1,8 @@
+{
+    "lidar_offset_x": -0.3,
+    "lidar_offset_y": 0.0,
+    "ultrasonic_offset_x": 0.03,
+    "ultrasonic_offset_y_left": 0.1,
+    "ultrasonic_offset_y_right": -0.1,
+    "calibration_timestamp": 1771880248.6145
+}

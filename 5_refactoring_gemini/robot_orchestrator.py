@@ -2,6 +2,8 @@ import threading
 import time
 import math
 import uuid
+import json
+import os
 from typing import List, Tuple, Dict, Any, Optional
 from threading import Lock
 from enum import Enum
@@ -56,6 +58,17 @@ class RobotOrchestrator:
         self.recorder = recorder
         self.logger = get_logger()
 
+        # Load Calibration
+        self.calibration = self._load_calibration()
+        self.lidar_offset_x = self.calibration.get("lidar_offset_x", LIDAR_OFFSET_X)
+        self.lidar_offset_y = self.calibration.get("lidar_offset_y", LIDAR_OFFSET_Y)
+        self.us_offsets = {
+            "left": (self.calibration.get("ultrasonic_offset_x", ULTRASONIC_OFFSET_X),
+                     self.calibration.get("ultrasonic_offset_y_left", ULTRASONIC_OFFSET_Y_LEFT)),
+            "right": (self.calibration.get("ultrasonic_offset_x", ULTRASONIC_OFFSET_X),
+                      self.calibration.get("ultrasonic_offset_y_right", ULTRASONIC_OFFSET_Y_RIGHT))
+        }
+
         # State
         self.is_running = False
         self.is_recording = False
@@ -63,6 +76,7 @@ class RobotOrchestrator:
         self.lidar_error_active = False
         self.session_id = None
         self.session_start_time = None
+        self.frames_count = 0
 
         # Navigation State
         self.nav_state = NavigationState.IDLE
@@ -86,23 +100,38 @@ class RobotOrchestrator:
         self.us_distances = {"left": 1000.0, "right": 1000.0}
         self.lidar_last_update = 0.0
 
+        # Loop Timing
+        self.consecutive_overruns = 0
+        self.max_overruns_allowed = 5
+        self.loop_target_dt = 1.0 / CONTROL_LOOP_HZ
+        self.max_loop_time = 0.02 # 20ms
+
         # Thread sync
         self.scan_lock = Lock()
         self.us_lock = Lock()
         self.state_buffer = [] # ControllerSamples
-        self.frames = [] # LidarFrames
         self.buffer_lock = Lock()
 
         # Threads
         self.t_lidar = threading.Thread(target=self._lidar_thread, daemon=True)
         self.t_us = threading.Thread(target=self._ultrasonic_thread, daemon=True)
 
+    def _load_calibration(self) -> Dict[str, float]:
+        calib_file = "calibration.json"
+        if os.path.exists(calib_file):
+            try:
+                with open(calib_file, 'r') as f:
+                    data = json.load(f)
+                    self.logger.info("CALIBRATION_LOADED", data)
+                    return data
+            except Exception as e:
+                self.logger.error("CALIBRATION_LOAD_ERROR", {"error": str(e)})
+        return {}
+
     def setup_navigation(self, map_path: str, initial_pose: RobotPose):
         try:
             self.mcl = MCLEngine(map_path, initial_pose)
-            # AStarPlanner needs the map grid from MCL or loaded separately.
-            # MCLEngine loads it. We can access it.
-            self.planner = AStarPlanner(self.mcl.map_grid)
+            self.planner = AStarPlanner(self.mcl.map_grid, us_offsets=self.us_offsets)
             self.controller = PurePursuitController()
             self.current_pose = initial_pose
             self.odometry.set_pose(initial_pose)
@@ -186,17 +215,12 @@ class RobotOrchestrator:
                 scan_data = []
                 # scan is list of (quality, angle, distance)
                 for quality, angle, dist in scan:
-                    # RPLidar yields mm usually. Config assumes mm input and converts to meters?
-                    # v3.0.2 logic: dist / 1000.0
                     dist_m = dist / 1000.0
-
-                    # Front check logic from v3.0.2:
                     check_angle = angle
                     if check_angle > 180: check_angle -= 360
                     if -45 <= check_angle <= 45:
                         if dist_m > 0:
                             min_dist = min(min_dist, dist_m)
-
                     scan_data.append((angle, dist))
 
                 with self.scan_lock:
@@ -211,11 +235,13 @@ class RobotOrchestrator:
 
                     frame = LidarFrame(
                         timestamp=current_time,
-                        frame_id=len(self.frames),
+                        frame_id=self.frames_count,
                         scan_data=scan_data,
                         controller_states=samples
                     )
-                    self.frames.append(frame)
+                    self.frames_count += 1
+                    # Stream Frame
+                    self.recorder.log_frame(frame)
 
             except Exception as e:
                 self.logger.error("LIDAR_THREAD_ERROR", {"error": str(e)})
@@ -225,9 +251,6 @@ class RobotOrchestrator:
         while self.is_running:
             try:
                 distances = self.ultrasonic.get_distances()
-                # Distances are now raw, can be -1.0 if error/timeout
-
-                # Calculate simple min distance for quick checks (ignoring errors for now, handled in drive)
                 d_l = distances.get("left", -1.0)
                 d_r = distances.get("right", -1.0)
 
@@ -251,65 +274,45 @@ class RobotOrchestrator:
         self.is_recording = True
         self.session_id = str(uuid.uuid4())
         self.session_start_time = time.time()
-        self.frames = []
+        self.frames_count = 0
         self.state_buffer = []
         self.logger.info("RECORDING_START", {"session_id": self.session_id})
 
+        hardware_info={
+            "platform": "Raspberry Pi 5",
+            "capabilities": {
+                "has_lidar": not self.lidar_error_active,
+                "has_pose": True,
+                "lidar_error_active": self.lidar_error_active
+            },
+            "calibration": self.calibration
+        }
+        self.recorder.start_session(self.session_id, hardware_info)
+
     def stop_recording(self):
         self.is_recording = False
-        self.logger.info("RECORDING_STOP", {"frames": len(self.frames)})
-
-        session = PathRecordingData(
-            session_id=self.session_id if self.session_id else "unknown",
-            start_timestamp=self.session_start_time if self.session_start_time else time.time(),
-            end_timestamp=time.time(),
-            hardware_info={
-                "platform": "Raspberry Pi 5",
-                "capabilities": {
-                    "has_lidar": not self.lidar_error_active,
-                    "has_pose": True,
-                    "lidar_error_active": self.lidar_error_active
-                }
-            },
-            frames=self.frames
-        )
-        self.recorder.save_session_async(session)
+        self.logger.info("RECORDING_STOP", {"frames": self.frames_count})
+        self.recorder.stop_session()
 
     def _main_loop(self):
-        dt = 1.0 / CONTROL_LOOP_HZ
         while self.is_running:
             loop_start = time.time()
 
             # 1. Update Pose (Odometry)
-            # Get latest motor speed? No, Odometry updated in _drive usually.
-            # But in Autonomous, we call set_speed directly.
-            # Wait, OdometryEngine needs 'update(l, r)'.
-            # We should call odometry update loop?
-            # Or assume set_speed sets the target, and we estimate actual speed?
-            # Ideally, we read encoders (if we had them).
-            # Here we rely on commands.
             # In Manual mode, _drive calls odometry.update().
             # In Autonomous mode, we must also call odometry.update().
 
             # 2. MCL Update
             if self.mcl:
-                # Get current odometry pose
                 current_odom = self.odometry.get_pose()
-
-                # Predict Step (Delta since last time?)
-                # We need delta. MCLEngine usually tracks it or we pass it.
-                # My MCLEngine.predict takes odom_delta.
-                # I need to track previous odom.
                 if not hasattr(self, '_last_odom'):
                     self._last_odom = current_odom
 
                 dx = current_odom.x - self._last_odom.x
                 dy = current_odom.y - self._last_odom.y
                 dtheta = current_odom.theta - self._last_odom.theta
-                # Normalize dtheta
                 dtheta = (dtheta + math.pi) % (2 * math.pi) - math.pi
 
-                # Convert to local frame (based on old pose)
                 c = math.cos(self._last_odom.theta)
                 s = math.sin(self._last_odom.theta)
                 dx_local = dx * c + dy * s
@@ -318,7 +321,6 @@ class RobotOrchestrator:
                 self.mcl.predict((dx_local, dy_local, dtheta))
                 self._last_odom = current_odom
 
-                # Update Step
                 with self.scan_lock:
                     scan_data = list(self.latest_scan)
 
@@ -374,13 +376,27 @@ class RobotOrchestrator:
             else:
                  if not self.autonomous_enabled:
                     self.motor.set_speed(0, 0)
-                    # Need to update odometry with 0 speed
                     self.odometry.update(0, 0)
                  else:
                     self._drive_autonomous()
 
+            # Timing & Overrun Detection
             elapsed = time.time() - loop_start
-            sleep_time = dt - elapsed
+
+            if elapsed > self.max_loop_time:
+                self.logger.warn("LOOP_OVERRUN", {"elapsed": elapsed})
+                self.consecutive_overruns += 1
+            else:
+                self.consecutive_overruns = 0
+
+            if self.consecutive_overruns > 5:
+                self.logger.error("CRITICAL_OVERRUN_STOP", {"consecutive": self.consecutive_overruns})
+                self.motor.stop()
+                self.consecutive_overruns = 0 # Reset to allow recovery or just stop?
+                # Requirement says "bremst der Roboter (PWM hart auf 0.0) und loggt..."
+                # It doesn't say "shut down". Just stop.
+
+            sleep_time = self.loop_target_dt - elapsed
             if sleep_time > 0:
                 time.sleep(sleep_time)
 
@@ -390,6 +406,10 @@ class RobotOrchestrator:
 
         with self.us_lock:
             us_dist = self.min_us_distance_cm
+            us_data = self.us_distances.copy()
+
+        # Update planner with US data
+        self.planner.update_ultrasonic_data(us_data)
 
         # State Machine
         if self.nav_state == NavigationState.FOLLOWING:
@@ -418,12 +438,29 @@ class RobotOrchestrator:
         elif self.nav_state == NavigationState.REVERSING:
             # Move backward slowly
             speed = -0.2
-            self.motor.set_speed(speed, speed)
-            self.odometry.update(speed, speed)
 
-            # Check conditions
+            # Phase 8: Max 50 cm reverse limit
             dist_traveled = math.sqrt((self.current_pose.x - self.reverse_start_pose.x)**2 +
                                       (self.current_pose.y - self.reverse_start_pose.y)**2)
+
+            # Lidar collision check (Lidar is bumper when reversing)
+            with self.scan_lock:
+                lidar_min = self.min_lidar_distance_m
+
+            if lidar_min < 0.2: # Stop if lidar sees obstacle closely behind/around
+                 self.logger.error("REVERSE_LIDAR_STOP", {"dist": lidar_min})
+                 self.motor.stop()
+                 self.nav_state = NavigationState.BLOCKED
+                 return
+
+            if dist_traveled >= 0.50:
+                 self.logger.warn("REVERSE_LIMIT_REACHED", {"dist": dist_traveled})
+                 self.motor.stop()
+                 self.nav_state = NavigationState.REPLANNING
+                 return
+
+            self.motor.set_speed(speed, speed)
+            self.odometry.update(speed, speed)
 
             if us_dist > 30.0 or dist_traveled > 0.15:
                 self.logger.info("REVERSING_COMPLETE", {"dist": dist_traveled, "us": us_dist})
@@ -431,27 +468,14 @@ class RobotOrchestrator:
                 self.nav_state = NavigationState.REPLANNING
 
         elif self.nav_state == NavigationState.REPLANNING:
-            # Inject Virtual Obstacle
-            # 15cm ahead of reverse_start_pose (where we saw the obstacle)
-            # Assuming we were moving forward when we hit it.
-            # Or just use current pose + forward vector?
-            # We reversed, so obstacle is in front.
-            obs_dist = 0.20 # 20cm ahead of current (since we reversed ~15cm, obstacle is ~30cm away?)
-            # Wait, if we reversed because US < 15. Now US > 30 or we moved 15.
-            # The obstacle is roughly where we started reversing + 15cm?
-            # Let's approximate: Obstacle is at reverse_start_pose + offset.
-
-            # Use reverse_start_pose orientation
+            obs_dist = 0.20
             ox = self.reverse_start_pose.x + 0.20 * math.cos(self.reverse_start_pose.theta)
             oy = self.reverse_start_pose.y + 0.20 * math.sin(self.reverse_start_pose.theta)
 
             self.planner.inject_virtual_obstacle(ox, oy)
-
-            # Find Goal on Original Path (2m ahead)
             goal_point = self._find_target_on_original_path(self.current_pose, lookahead=2.0)
             goal_pose = RobotPose(x=goal_point[0], y=goal_point[1], theta=0, timestamp=0)
 
-            # Plan
             new_path = self.planner.plan(self.current_pose, goal_pose)
 
             if new_path:
@@ -471,7 +495,6 @@ class RobotOrchestrator:
         if not self.original_path:
             return (current_pose.x, current_pose.y) # Fallback
 
-        # Find closest point
         min_dist_sq = float('inf')
         closest_idx = 0
         for i, (px, py) in enumerate(self.original_path):
@@ -480,7 +503,6 @@ class RobotOrchestrator:
                 min_dist_sq = d2
                 closest_idx = i
 
-        # Look forward
         for i in range(closest_idx, len(self.original_path)):
             px, py = self.original_path[i]
             d2 = (px - current_pose.x)**2 + (py - current_pose.y)**2
@@ -502,7 +524,6 @@ class RobotOrchestrator:
             distances = self.us_distances.copy()
             us_dist = self.min_us_distance_cm
 
-        # Track valid updates
         any_sensor_timeout = False
         critical_stop = False
 
@@ -531,11 +552,9 @@ class RobotOrchestrator:
         if any_sensor_timeout:
             us_fail_factor = SENSOR_FAIL_SPEED_FACTOR
 
-        # Map trigger (-1 to 1) to (0 to 1) throttle
         throttle_l = (trig_l + 1) / 2
         throttle_r = (trig_r + 1) / 2
 
-        # Directions
         speed_l = throttle_l
         speed_r = throttle_r
 
@@ -543,7 +562,6 @@ class RobotOrchestrator:
             speed_l = -speed_l
             speed_r = -speed_r
 
-        # Collision Avoidance
         with self.scan_lock:
             lidar_dist = self.min_lidar_distance_m
 
@@ -556,23 +574,19 @@ class RobotOrchestrator:
              elif us_dist < COLLISION_DISTANCE_CM or lidar_dist < LIDAR_COLLISION_DISTANCE_M:
                  factor = 0.5
 
-        # Apply factors
         speed_l *= factor * us_fail_factor
         speed_r *= factor * us_fail_factor
 
         self.motor.set_speed(speed_l, speed_r)
+        self.odometry.update(speed_l, speed_r)
 
-        # Update Odometry
-        pose = self.odometry.update(speed_l, speed_r)
-
-        # Buffer State if recording
         if self.is_recording:
             sample = ControllerSample(
                 timestamp=time.time(),
                 left_duty=abs(speed_l) * MAX_DUTY_CYCLE,
                 right_duty=abs(speed_r) * MAX_DUTY_CYCLE,
                 is_moving_forward=self.is_moving_forward,
-                pose=pose
+                pose=self.odometry.get_pose()
             )
             with self.buffer_lock:
                 self.state_buffer.append(sample)

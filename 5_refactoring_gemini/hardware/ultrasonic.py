@@ -13,8 +13,8 @@ is_pc_mode = os.environ.get("PC_TEST_MODE") == "1"
 if not is_pc_mode:
     try:
         import RPi.GPIO as GPIO
-    except ImportError:
-        print("Warning: RPi.GPIO not found. Simulating PC Mode.")
+    except Exception:
+        print("Warning: RPi.GPIO not found or failed to load. Simulating PC Mode.")
         is_pc_mode = True
 
 class RealUltrasonic(IUltrasonicSensor):

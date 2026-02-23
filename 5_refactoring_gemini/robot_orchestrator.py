@@ -7,7 +7,7 @@ from threading import Lock
 
 try:
     import RPi.GPIO as GPIO
-except ImportError:
+except Exception:
     GPIO = None
 
 try:

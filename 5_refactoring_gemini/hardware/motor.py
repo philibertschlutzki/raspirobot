@@ -15,11 +15,11 @@ if not is_pc_mode:
     try:
         import RPi.GPIO as GPIO
         from rpi_hardware_pwm import HardwarePWM
-    except ImportError:
+    except Exception:
         # Fallback if libraries missing even if not strictly in PC mode (e.g. dev machine)
         # But per requirements we should only mock if PC_TEST_MODE=1.
         # However, to avoid crash on dev machine without libs, we can fallback.
-        print("Warning: Hardware libraries not found. Simulating PC Mode.")
+        print("Warning: Hardware libraries not found or failed to load. Simulating PC Mode.")
         is_pc_mode = True
 
 class RealMotorController(IMotorController):

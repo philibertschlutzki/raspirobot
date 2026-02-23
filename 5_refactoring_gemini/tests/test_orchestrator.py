@@ -37,7 +37,7 @@ def test_emergency_stop():
     orch.is_moving_forward = True
 
     # Try to drive forward (trig = 1.0 => speed 1.0)
-    orch._drive(1.0, 1.0)
+    orch._drive_manual(1.0, 1.0)
 
     # Expect stop (0.0)
     assert motor.left_speed == 0.0
@@ -45,7 +45,7 @@ def test_emergency_stop():
 
     # Simulate US > 15cm but < 30cm (Collision Dist) -> Factor 0.5
     orch.min_us_distance_cm = 20.0
-    orch._drive(1.0, 1.0)
+    orch._drive_manual(1.0, 1.0)
 
     # Expect 0.5 speed
     assert motor.left_speed == 0.5

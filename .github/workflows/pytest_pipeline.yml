@@ -1,0 +1,38 @@
+name: Pytest Pipeline
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      PC_TEST_MODE: "1"
+      SDL_VIDEODRIVER: "dummy"
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        # Ensure pygame is installed for XboxInput
+        pip install pygame
+
+    - name: Run Pytest
+      run: |
+        # Add root to PYTHONPATH
+        export PYTHONPATH=$PYTHONPATH:$(pwd)
+        pytest 5_refactoring_gemini/tests/
+
+    - name: Verify Log Validator
+      run: |
+        # Create a dummy log file to verify validator runs in CI
+        echo '{"timestamp": 123.45, "level": "INFO", "event_name": "CI_TEST_EVENT", "data": {}}' > ci_test.jsonl
+        python 5_refactoring_gemini/tests/log_validator.py ci_test.jsonl --require CI_TEST_EVENT
+        rm ci_test.jsonl

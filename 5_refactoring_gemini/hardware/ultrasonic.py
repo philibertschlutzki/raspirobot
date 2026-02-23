@@ -1,5 +1,6 @@
 import time
 import os
+from typing import Dict
 
 try:
     from ..interfaces import IUltrasonicSensor
@@ -54,12 +55,12 @@ class RealUltrasonic(IUltrasonicSensor):
         elapsed = stop - start
         return (elapsed * SOUND_SPEED) / 2
 
-    def get_distance(self) -> float:
-        """Returns minimum distance from both sensors in cm."""
+    def get_distances(self) -> Dict[str, float]:
+        """Returns distance from left/right sensors in cm."""
         if self.pc_mode:
-            return 1000.0
+            return {"left": 1000.0, "right": 1000.0}
 
         d1 = self._measure(TRIG_LEFT, ECHO_LEFT)
         time.sleep(0.01) # Avoid interference
         d2 = self._measure(TRIG_RIGHT, ECHO_RIGHT)
-        return min(d1, d2)
+        return {"left": d1, "right": d2}

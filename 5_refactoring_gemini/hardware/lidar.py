@@ -5,9 +5,11 @@ from typing import List, Tuple
 try:
     from ..interfaces import ILidarSensor
     from ..config import LIDAR_PORT, LIDAR_BAUDRATE
+    from ..logger import get_logger
 except ImportError:
     from interfaces import ILidarSensor
     from config import LIDAR_PORT, LIDAR_BAUDRATE
+    from logger import get_logger
 
 is_pc_mode = os.environ.get("PC_TEST_MODE") == "1"
 
@@ -24,6 +26,11 @@ class RealLidarSensor(ILidarSensor):
         self.lidar = None
         self.iterator = None
         self.running = False
+        try:
+            self.logger = get_logger()
+        except Exception:
+            self.logger = None
+        self.last_scan_time = 0.0
 
     def start(self):
         if self.pc_mode:
@@ -61,6 +68,20 @@ class RealLidarSensor(ILidarSensor):
 
         try:
             scan = next(self.iterator)
+
+            current_time = time.time()
+            # print(f"DEBUG_LIDAR: t={current_time}, last={self.last_scan_time}")
+            if self.last_scan_time > 0:
+                dt = current_time - self.last_scan_time
+                # print(f"DEBUG_LIDAR: dt={dt}")
+                if dt > 0.15: # < 6.6 Hz
+                    hz = 1.0 / dt
+                    if self.logger:
+                        self.logger.warn("LIDAR_LOW_FREQ", {"hz": round(hz, 2), "dt": round(dt, 3)})
+                    # print(f"Warning: Low Lidar Frequency: {round(hz, 2)} Hz")
+
+            self.last_scan_time = current_time
+
             # scan is list of (quality, angle, distance)
             # Return (angle, distance)
             return [(angle, dist) for (_, angle, dist) in scan]

@@ -41,7 +41,8 @@ def test_mock_ultrasonic():
     us = MockUltrasonicSensor()
     assert isinstance(us, IUltrasonicSensor)
     us.set_mock_distance(15.5)
-    assert us.get_distance() == 15.5
+    dists = us.get_distances()
+    assert dists["left"] == 15.5
 
 def test_mock_input():
     inp = MockInputController()

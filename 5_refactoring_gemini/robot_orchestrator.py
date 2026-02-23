@@ -6,6 +6,11 @@ from typing import List, Tuple, Dict, Any, Optional
 from threading import Lock
 
 try:
+    import RPi.GPIO as GPIO
+except ImportError:
+    GPIO = None
+
+try:
     from .interfaces import IMotorController, ILidarSensor, IUltrasonicSensor, IInputController
     from .odometry import OdometryEngine
     from .recorder import DataRecorder
@@ -81,6 +86,14 @@ class RobotOrchestrator:
         self.motor.stop()
         if self.is_recording:
             self.stop_recording()
+
+        if GPIO:
+            try:
+                GPIO.cleanup()
+                self.logger.info("GPIO_CLEANUP", {})
+            except Exception as e:
+                self.logger.error("GPIO_CLEANUP_ERROR", {"error": str(e)})
+
         self.logger.info("ROBOT_STOP", {"status": "stopped"})
 
     def _lidar_thread(self):
@@ -146,7 +159,11 @@ class RobotOrchestrator:
     def _ultrasonic_thread(self):
         while self.is_running:
             try:
-                dist = self.ultrasonic.get_distance()
+                distances = self.ultrasonic.get_distances()
+                dist_l = distances.get("left", 1000.0)
+                dist_r = distances.get("right", 1000.0)
+                dist = min(dist_l, dist_r)
+
                 with self.us_lock:
                     self.min_us_distance_cm = dist
 
@@ -170,7 +187,14 @@ class RobotOrchestrator:
             session_id=self.session_id if self.session_id else "unknown",
             start_timestamp=self.session_start_time if self.session_start_time else time.time(),
             end_timestamp=time.time(),
-            hardware_info={"platform": "Raspberry Pi 5"},
+            hardware_info={
+                "platform": "Raspberry Pi 5",
+                "capabilities": {
+                    "has_lidar": not self.lidar_error_active,
+                    "has_pose": True,
+                    "lidar_error_active": self.lidar_error_active
+                }
+            },
             frames=self.frames
         )
         self.recorder.save_session_async(session)

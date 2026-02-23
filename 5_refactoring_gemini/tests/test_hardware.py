@@ -35,8 +35,9 @@ def test_lidar_pc_mode():
 
 def test_ultrasonic_pc_mode():
     us = RealUltrasonic()
-    dist = us.get_distance()
-    assert dist == 1000.0
+    dists = us.get_distances()
+    assert dists["left"] == 1000.0
+    assert dists["right"] == 1000.0
 
 def test_xbox_pc_mode():
     # XboxInput might try to init pygame

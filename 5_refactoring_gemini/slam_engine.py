@@ -184,6 +184,12 @@ class SLAMEngine:
             self.reference_points = global_points
         else:
             self.reference_points = np.vstack((self.reference_points, global_points))
+<<<<<<< refactor/slam-engine-phase6-6382549282473405271
+=======
+            if len(self.reference_points) > 10000:
+                # Deterministic FIFO downsampling (keep newest 10000)
+                self.reference_points = self.reference_points[-10000:]
+>>>>>>> main
 
         # Spatial Downsampling: Voxel Grid Filter
         # Convert to integer grid coordinates based on resolution

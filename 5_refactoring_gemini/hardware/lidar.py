@@ -40,7 +40,9 @@ class RealLidarSensor(ILidarSensor):
 
         try:
             self.lidar = RPLidar(LIDAR_PORT, baudrate=LIDAR_BAUDRATE)
-            self.iterator = self.lidar.iter_scans()
+            self.lidar.start_motor()
+            time.sleep(2.0)
+            self.iterator = self.lidar.iter_scans(max_buf_meas=5000, min_len=10)
             self.running = True
         except Exception as e:
             print(f"Error starting LIDAR: {e}")
@@ -57,8 +59,8 @@ class RealLidarSensor(ILidarSensor):
             self.lidar = None
             self.iterator = None
 
-    def get_latest_scan(self) -> List[Tuple[float, float]]:
-        """Returns list of (angle, distance). Blocks until scan available."""
+    def get_latest_scan(self) -> List[Tuple[int, float, float]]:
+        """Returns list of (quality, angle, distance). Blocks until scan available."""
         if self.pc_mode:
             time.sleep(0.1) # Simulate delay
             return []
@@ -83,8 +85,7 @@ class RealLidarSensor(ILidarSensor):
             self.last_scan_time = current_time
 
             # scan is list of (quality, angle, distance)
-            # Return (angle, distance)
-            return [(angle, dist) for (_, angle, dist) in scan]
+            return [(quality, angle, dist) for (quality, angle, dist) in scan]
         except Exception as e:
             print(f"LIDAR read error: {e}")
             # Try to recover? logic handles this in orchestrator or here?

@@ -1,32 +1,45 @@
-from dataclasses import dataclass, asdict, field
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any, Optional
+from pydantic import BaseModel, Field, ConfigDict
+from enum import Enum
 
-@dataclass
-class RobotPose:
+class LogLevel(str, Enum):
+    INFO = "INFO"
+    WARN = "WARN"
+    ERROR = "ERROR"
+
+class RobotPose(BaseModel):
     x: float
     y: float
     theta: float
     timestamp: float
+    model_config = ConfigDict(frozen=True)
 
-@dataclass
-class ControllerState:
+class ControllerSample(BaseModel):
     timestamp: float
     left_duty: float
     right_duty: float
     is_moving_forward: bool
-    pose: Dict[str, Any]
+    pose: RobotPose
+    model_config = ConfigDict(frozen=True)
 
-@dataclass
-class LidarFrame:
+class LidarFrame(BaseModel):
     timestamp: float
     frame_id: int
-    scan_data: List[Tuple[float, float]]
-    controller_states: List[Dict[str, Any]]
+    scan_data: List[Tuple[float, float]]  # List of (angle, distance)
+    controller_states: List[ControllerSample]
+    model_config = ConfigDict(frozen=True)
 
-@dataclass
-class RecordingSession:
+class PathRecordingData(BaseModel):
     session_id: str
     start_timestamp: float
     end_timestamp: float
     hardware_info: Dict[str, Any]
-    frames: List[Dict[str, Any]]
+    frames: List[LidarFrame]
+    model_config = ConfigDict(frozen=True)
+
+class LogEntry(BaseModel):
+    timestamp: float
+    level: LogLevel
+    event_name: str
+    data: Dict[str, Any]
+    model_config = ConfigDict(frozen=True)

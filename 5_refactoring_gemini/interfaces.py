@@ -24,8 +24,8 @@ class ILidarSensor(ABC):
         pass
 
     @abstractmethod
-    def get_latest_scan(self) -> List[Tuple[float, float]]:
-        """Returns the latest complete scan as a list of (angle, distance)."""
+    def get_latest_scan(self) -> List[Tuple[int, float, float]]:
+        """Returns the latest complete scan as a list of (quality, angle, distance)."""
         pass
 
 class IUltrasonicSensor(ABC):

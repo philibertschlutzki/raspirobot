@@ -50,10 +50,15 @@ class RobotOrchestrator:
         self.session_id = None
         self.session_start_time = None
 
+        # Sensor Timeout Tracking
+        self.us_last_valid_time = {"left": time.time(), "right": time.time()}
+        self.us_error_active = False
+
         # Data Buffers
         self.latest_scan = []
         self.min_lidar_distance_m = 1000.0
         self.min_us_distance_cm = 1000.0
+        self.us_distances = {"left": 1000.0, "right": 1000.0}
         self.lidar_last_update = 0.0
 
         # Thread sync
@@ -112,6 +117,13 @@ class RobotOrchestrator:
                     time.sleep(0.01)
                     continue
 
+                # Frequency Check
+                dt = current_time - self.lidar_last_update
+                if dt > 0:
+                    freq = 1.0 / dt
+                    if abs(freq - LIDAR_TARGET_FREQUENCY) > 2.0:
+                         self.logger.warn("LIDAR_FREQ_UNSTABLE", {"hz": freq, "target": LIDAR_TARGET_FREQUENCY})
+
                 self.lidar_last_update = current_time
                 if self.lidar_error_active:
                     self.lidar_error_active = False
@@ -120,7 +132,8 @@ class RobotOrchestrator:
                 # Process scan for min distance
                 min_dist = 1000.0
                 scan_data = []
-                for angle, dist in scan:
+                # scan is list of (quality, angle, distance)
+                for quality, angle, dist in scan:
                     # RPLidar yields mm usually. Config assumes mm input and converts to meters?
                     # v3.0.2 logic: dist / 1000.0
                     dist_m = dist / 1000.0
@@ -160,12 +173,23 @@ class RobotOrchestrator:
         while self.is_running:
             try:
                 distances = self.ultrasonic.get_distances()
-                dist_l = distances.get("left", 1000.0)
-                dist_r = distances.get("right", 1000.0)
-                dist = min(dist_l, dist_r)
+                # Distances are now raw, can be -1.0 if error/timeout
+
+                # Calculate simple min distance for quick checks (ignoring errors for now, handled in drive)
+                d_l = distances.get("left", -1.0)
+                d_r = distances.get("right", -1.0)
+
+                valid_vals = []
+                if d_l > 0: valid_vals.append(d_l)
+                if d_r > 0: valid_vals.append(d_r)
+
+                min_dist = 1000.0
+                if valid_vals:
+                    min_dist = min(valid_vals)
 
                 with self.us_lock:
-                    self.min_us_distance_cm = dist
+                    self.us_distances = distances
+                    self.min_us_distance_cm = min_dist
 
                 time.sleep(1.0 / SENSOR_UPDATE_HZ)
             except Exception as e:
@@ -245,9 +269,46 @@ class RobotOrchestrator:
                 time.sleep(sleep_time)
 
     def _drive(self, trig_l, trig_r):
+        current_time = time.time()
+
         if self.lidar_error_active:
              self.motor.stop()
              return
+
+        # 1. Ultrasonic Failure Logic
+        us_fail_factor = 1.0
+        with self.us_lock:
+            distances = self.us_distances.copy()
+            us_dist = self.min_us_distance_cm
+
+        # Track valid updates
+        any_sensor_timeout = False
+        critical_stop = False
+
+        for key in ["left", "right"]:
+            val = distances.get(key, -1.0)
+            if val > 0:
+                self.us_last_valid_time[key] = current_time
+            else:
+                elapsed = current_time - self.us_last_valid_time.get(key, current_time)
+                if elapsed > SENSOR_TIMEOUT_STOP_SEC:
+                    if not self.us_error_active:
+                        self.logger.error("US_CRITICAL_STOP", {"sensor": key, "elapsed": elapsed})
+                        self.us_error_active = True
+                    critical_stop = True
+                elif elapsed > SENSOR_TIMEOUT_WARN_SEC:
+                    any_sensor_timeout = True
+
+        if critical_stop:
+            self.motor.stop()
+            return
+
+        if self.us_error_active:
+             self.us_error_active = False
+             self.logger.info("US_RECOVERED", {})
+
+        if any_sensor_timeout:
+            us_fail_factor = SENSOR_FAIL_SPEED_FACTOR
 
         # Map trigger (-1 to 1) to (0 to 1) throttle
         throttle_l = (trig_l + 1) / 2
@@ -262,8 +323,6 @@ class RobotOrchestrator:
             speed_r = -speed_r
 
         # Collision Avoidance
-        with self.us_lock:
-            us_dist = self.min_us_distance_cm
         with self.scan_lock:
             lidar_dist = self.min_lidar_distance_m
 
@@ -277,8 +336,9 @@ class RobotOrchestrator:
              elif us_dist < COLLISION_DISTANCE_CM or lidar_dist < LIDAR_COLLISION_DISTANCE_M:
                  factor = 0.5
 
-        speed_l *= factor
-        speed_r *= factor
+        # Apply factors
+        speed_l *= factor * us_fail_factor
+        speed_r *= factor * us_fail_factor
 
         self.motor.set_speed(speed_l, speed_r)
 

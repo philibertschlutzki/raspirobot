@@ -22,8 +22,8 @@ class TestUltrasonicSplit:
         assert isinstance(result, dict)
         assert "left" in result
         assert "right" in result
-        assert result["left"] == 1000.0
-        assert result["right"] == 1000.0
+        assert result["left"] == -1.0
+        assert result["right"] == -1.0
 
     def test_orchestrator_integration(self):
         try:

@@ -2,3 +2,8 @@ rpi_hardware_pwm
 numpy
 RPi.GPIO
 rplidar-robotic
+pydantic>=2.0
+pytest
+scipy
+pygame
+matplotlib

@@ -35,12 +35,15 @@ Diese Phasen wurden bereits erfolgreich implementiert und dienen als architekton
 - **Grid-Spezifikationen:** Statisch allokiertes Array der Größe 400x400 Zellen. Die Zellengröße (Resolution) beträgt fix 0.05m (5cm), was einer Fläche von 20x20 Metern entspricht.
 - **Ursprungs-Mapping (Center-Origin):** Der logische Startpunkt des Roboters (x=0, y=0) beim Start des Mappings wird zwingend auf den exakten Mittelpunkt des Arrays (Index `[200, 200]`) gemappt, um Fahrten in alle Himmelsrichtungen (inkl. rückwärts) ohne negative Array-Indizes zu ermöglichen.
 
-### Phase 7: Globale Lokalisierungs-Engine (Kidnapped Robot)
-**Ziel:** Der Roboter muss seine Pose auf der bestehenden `.npy`-Karte selbstständig ermitteln können, egal wo er abgesetzt wird.
+## Phase 7: Globale Lokalisierungs-Engine & Dynamische Navigation
+
+**Ziel:** Der Roboter muss seine Pose auf einer bestehenden `.npy`-Karte selbstständig ermitteln (Kidnapped Robot Problem) und dynamischen, nicht in der Karte verzeichneten Hindernissen intelligent ausweichen.
+
 **Anforderungen:**
-- Implementierung eines Partikelfilters (Monte Carlo Localization - MCL).
-- Der Algorithmus streut Partikel über die Karte und lässt diese durch Abgleich von aktuellen LIDAR-Scans mit der geladenen Karte konvergieren.
-- Erfolgsmetrik: Der Algorithmus muss die wahre Pose (x, y, theta) mathematisch stabil isolieren.
+1. **Map-Validierung:** Beim Laden der Karte wird die Datenqualität geprüft (ausreichend Feature-Dichte und Freiraum). Bei schlechter Qualität wird der Start verweigert.
+2. **Monte Carlo Localization (MCL):** Implementierung eines Partikelfilters (NumPy-vektorisiert, Likelihood-Field, adaptives Resampling).
+3. **Strikte Separation of Concerns:** Die Lokalisierungs-Engine berechnet ausschließlich die Pose und meldet Diskrepanzen zwischen Scan und Karte (dynamische Hindernisse) als reine Daten-Events (Flag + Distanz) an den Orchestrator.
+4. **Local Path Planning (Umgehungsroute):** Implementierung eines A*- (A-Star) oder D* Lite-Algorithmus. Wenn ein dynamisches Hindernis gemeldet wird, drosselt der Orchestrator die Geschwindigkeit und der Path-Planner berechnet auf einer lokalen Costmap eine Umgehungsroute.
 
 ### Phase 8: Point-to-Point Navigations-Engine
 **Ziel:** Vollautonome Fahrt zu einem Zielpunkt auf der Karte.
@@ -106,6 +109,11 @@ Das Projekt nutzt einen zweistufigen Testansatz, der vollständig in **GitHub Ac
 **Ziel:** Monte Carlo Localization (MCL) nach dem Einschalten.
 **Abnahmekriterium:**
 - **TC 7.1 (Pose-Konvergenz):** Simulation von 10 zufälligen Startorten. Erfolgskriterium: 95% der Partikelwolke konvergiert innerhalb einer **10 cm Bounding-Box**, Theta-Abweichung < 5 Grad. Dies muss in 9 von 10 Fällen nach max. einer 360-Grad-Drehung eintreten.
+
+* **TC 7.1 (Pose-Konvergenz):** Simulation von 10 zufälligen Startorten. Erfolgskriterium: In 9 von 10 Fällen konvergieren 95 % der Partikel nach max. einer 360-Grad-Drehung innerhalb einer 10 cm Bounding-Box (Theta-Abweichung < 5 Grad).
+* **TC 7.2 (Hindernis-Erkennung & Ausweichen):** Ein synthetisches Hindernis wird im Lidar-Datenstrom direkt vor dem Roboter platziert, das nicht in der `.npy`-Karte existiert. 
+    * *Erfolgskriterium:* Die Engine meldet das Event, der Orchestrator drosselt die Geschwindigkeit, und der Path-Planner liefert innerhalb von < 500 ms einen validen, kollisionsfreien Vektor-Pfad um das Hindernis herum. Testresultate müssen als Logs vorliegen.
+
 
 ### Phase 8: Point-to-Point Navigations-Engine
 **Ziel:** Vollautonome Fahrt (A*/Dijkstra & DWA) via CLI-Befehl.

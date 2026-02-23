@@ -30,8 +30,8 @@ class ILidarSensor(ABC):
 
 class IUltrasonicSensor(ABC):
     @abstractmethod
-    def get_distance(self) -> float:
-        """Returns distance in cm."""
+    def get_distances(self) -> Dict[str, float]:
+        """Returns distance in cm as {'left': float, 'right': float}."""
         pass
 
 class IInputController(ABC):

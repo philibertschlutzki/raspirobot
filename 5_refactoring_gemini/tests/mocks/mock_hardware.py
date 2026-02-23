@@ -47,8 +47,8 @@ class MockUltrasonicSensor(IUltrasonicSensor):
     def __init__(self):
         self.distance = 100.0
 
-    def get_distance(self) -> float:
-        return self.distance
+    def get_distances(self) -> Dict[str, float]:
+        return {"left": self.distance, "right": self.distance}
 
     def set_mock_distance(self, distance: float):
         self.distance = distance

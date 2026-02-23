@@ -4,6 +4,7 @@ import math
 import uuid
 from typing import List, Tuple, Dict, Any, Optional
 from threading import Lock
+from enum import Enum
 
 try:
     import RPi.GPIO as GPIO
@@ -17,6 +18,9 @@ try:
     from .logger import Logger, get_logger
     from .data_models import RobotPose, ControllerSample, LidarFrame, PathRecordingData, LogLevel
     from .config import *
+    from .mcl_engine import MCLEngine, LocalizationResult
+    from .path_planner import AStarPlanner
+    from .pure_pursuit import PurePursuitController
 except ImportError:
     from interfaces import IMotorController, ILidarSensor, IUltrasonicSensor, IInputController
     from odometry import OdometryEngine
@@ -24,6 +28,16 @@ except ImportError:
     from logger import Logger, get_logger
     from data_models import RobotPose, ControllerSample, LidarFrame, PathRecordingData, LogLevel
     from config import *
+    from mcl_engine import MCLEngine, LocalizationResult
+    from path_planner import AStarPlanner
+    from pure_pursuit import PurePursuitController
+
+class NavigationState(Enum):
+    IDLE = "IDLE"           # Manual control or stopped
+    FOLLOWING = "FOLLOWING" # Autonomous path following
+    REVERSING = "REVERSING" # Ultrasonic emergency reverse
+    REPLANNING = "REPLANNING" # Calculating new path
+    BLOCKED = "BLOCKED"     # Cannot find path
 
 class RobotOrchestrator:
     def __init__(self,
@@ -50,6 +64,17 @@ class RobotOrchestrator:
         self.session_id = None
         self.session_start_time = None
 
+        # Navigation State
+        self.nav_state = NavigationState.IDLE
+        self.mcl: Optional[MCLEngine] = None
+        self.planner: Optional[AStarPlanner] = None
+        self.controller: Optional[PurePursuitController] = None
+        self.current_pose = RobotPose(x=0, y=0, theta=0, timestamp=0)
+        self.original_path: List[Tuple[float, float]] = []
+        self.active_path: List[Tuple[float, float]] = []
+        self.reverse_start_pose: Optional[RobotPose] = None
+        self.autonomous_enabled = False
+
         # Sensor Timeout Tracking
         self.us_last_valid_time = {"left": time.time(), "right": time.time()}
         self.us_error_active = False
@@ -71,6 +96,33 @@ class RobotOrchestrator:
         # Threads
         self.t_lidar = threading.Thread(target=self._lidar_thread, daemon=True)
         self.t_us = threading.Thread(target=self._ultrasonic_thread, daemon=True)
+
+    def setup_navigation(self, map_path: str, initial_pose: RobotPose):
+        try:
+            self.mcl = MCLEngine(map_path, initial_pose)
+            # AStarPlanner needs the map grid from MCL or loaded separately.
+            # MCLEngine loads it. We can access it.
+            self.planner = AStarPlanner(self.mcl.map_grid)
+            self.controller = PurePursuitController()
+            self.current_pose = initial_pose
+            self.odometry.set_pose(initial_pose)
+            self.logger.info("NAV_SETUP_COMPLETE", {})
+        except Exception as e:
+            self.logger.error("NAV_SETUP_FAILED", {"error": str(e)})
+
+    def set_goal_path(self, path: List[Tuple[float, float]]):
+        self.original_path = path
+        self.active_path = path
+
+    def set_autonomous(self, enabled: bool):
+        self.autonomous_enabled = enabled
+        if enabled:
+            self.nav_state = NavigationState.FOLLOWING
+            self.logger.info("AUTONOMY_ENABLED", {})
+        else:
+            self.nav_state = NavigationState.IDLE
+            self.motor.set_speed(0, 0)
+            self.logger.info("AUTONOMY_DISABLED", {})
 
     def start(self):
         self.is_running = True
@@ -228,7 +280,60 @@ class RobotOrchestrator:
         while self.is_running:
             loop_start = time.time()
 
-            # 1. Input
+            # 1. Update Pose (Odometry)
+            # Get latest motor speed? No, Odometry updated in _drive usually.
+            # But in Autonomous, we call set_speed directly.
+            # Wait, OdometryEngine needs 'update(l, r)'.
+            # We should call odometry update loop?
+            # Or assume set_speed sets the target, and we estimate actual speed?
+            # Ideally, we read encoders (if we had them).
+            # Here we rely on commands.
+            # In Manual mode, _drive calls odometry.update().
+            # In Autonomous mode, we must also call odometry.update().
+
+            # 2. MCL Update
+            if self.mcl:
+                # Get current odometry pose
+                current_odom = self.odometry.get_pose()
+
+                # Predict Step (Delta since last time?)
+                # We need delta. MCLEngine usually tracks it or we pass it.
+                # My MCLEngine.predict takes odom_delta.
+                # I need to track previous odom.
+                if not hasattr(self, '_last_odom'):
+                    self._last_odom = current_odom
+
+                dx = current_odom.x - self._last_odom.x
+                dy = current_odom.y - self._last_odom.y
+                dtheta = current_odom.theta - self._last_odom.theta
+                # Normalize dtheta
+                dtheta = (dtheta + math.pi) % (2 * math.pi) - math.pi
+
+                # Convert to local frame (based on old pose)
+                c = math.cos(self._last_odom.theta)
+                s = math.sin(self._last_odom.theta)
+                dx_local = dx * c + dy * s
+                dy_local = -dx * s + dy * c
+
+                self.mcl.predict((dx_local, dy_local, dtheta))
+                self._last_odom = current_odom
+
+                # Update Step
+                with self.scan_lock:
+                    scan_data = list(self.latest_scan)
+
+                if scan_data:
+                    res = self.mcl.update(scan_data, current_odom)
+                    self.current_pose = res.pose
+                    if res.unexpected_obstacle_detected:
+                        if self.autonomous_enabled and self.nav_state == NavigationState.FOLLOWING:
+                            self.logger.warn("MCL_OBSTACLE_DETECTED", {})
+                            self.nav_state = NavigationState.REPLANNING
+                            self.motor.stop()
+                else:
+                    self.current_pose = current_odom
+
+            # 3. Input Handling
             inp = self.input.get_state()
             if inp.get("connected"):
                 buttons = inp.get("buttons", {})
@@ -243,8 +348,13 @@ class RobotOrchestrator:
                          self.stop_recording()
                          time.sleep(0.5)
 
-                # B -> Direction
-                if buttons.get("B"):
+                # Toggle Autonomous (e.g., Button A)
+                if buttons.get("A"):
+                     self.set_autonomous(not self.autonomous_enabled)
+                     time.sleep(0.5)
+
+                # B -> Direction (Manual Only)
+                if buttons.get("B") and not self.autonomous_enabled:
                      self.is_moving_forward = not self.is_moving_forward
                      self.logger.info("DIRECTION_CHANGE", {"forward": self.is_moving_forward})
                      time.sleep(0.2)
@@ -254,21 +364,132 @@ class RobotOrchestrator:
                      self.is_running = False
                      break
 
-                # Drive
-                trig_l = axes.get("LEFT_TRIGGER", -1.0)
-                trig_r = axes.get("RIGHT_TRIGGER", -1.0)
-                self._drive(trig_l, trig_r)
+                # Manual Drive if not Autonomous
+                if not self.autonomous_enabled:
+                    trig_l = axes.get("LEFT_TRIGGER", -1.0)
+                    trig_r = axes.get("RIGHT_TRIGGER", -1.0)
+                    self._drive_manual(trig_l, trig_r)
+                else:
+                    self._drive_autonomous()
             else:
-                # No controller, stop motors?
-                # Or keep going if autonomous? Assuming manual control for now.
-                self.motor.set_speed(0, 0)
+                 if not self.autonomous_enabled:
+                    self.motor.set_speed(0, 0)
+                    # Need to update odometry with 0 speed
+                    self.odometry.update(0, 0)
+                 else:
+                    self._drive_autonomous()
 
             elapsed = time.time() - loop_start
             sleep_time = dt - elapsed
             if sleep_time > 0:
                 time.sleep(sleep_time)
 
-    def _drive(self, trig_l, trig_r):
+    def _drive_autonomous(self):
+        if not self.mcl or not self.planner:
+            return
+
+        with self.us_lock:
+            us_dist = self.min_us_distance_cm
+
+        # State Machine
+        if self.nav_state == NavigationState.FOLLOWING:
+            # Check Ultrasonic
+            if us_dist < 15.0:
+                self.logger.warn("US_EMERGENCY_REVERSE", {"dist": us_dist})
+                self.nav_state = NavigationState.REVERSING
+                self.reverse_start_pose = self.current_pose
+                self.motor.stop()
+                return
+
+            # Get Command
+            l, r = self.controller.get_command(self.current_pose, self.active_path)
+            self.motor.set_speed(l, r)
+            self.odometry.update(l, r)
+
+            # Check completion of detour
+            if self.active_path is not self.original_path:
+                if self.active_path:
+                    end_p = self.active_path[-1]
+                    dist_to_end = math.sqrt((self.current_pose.x - end_p[0])**2 + (self.current_pose.y - end_p[1])**2)
+                    if dist_to_end < 0.3: # Reached end of detour
+                        self.active_path = self.original_path
+                        self.logger.info("RESUMING_ORIGINAL_PATH", {})
+
+        elif self.nav_state == NavigationState.REVERSING:
+            # Move backward slowly
+            speed = -0.2
+            self.motor.set_speed(speed, speed)
+            self.odometry.update(speed, speed)
+
+            # Check conditions
+            dist_traveled = math.sqrt((self.current_pose.x - self.reverse_start_pose.x)**2 +
+                                      (self.current_pose.y - self.reverse_start_pose.y)**2)
+
+            if us_dist > 30.0 or dist_traveled > 0.15:
+                self.logger.info("REVERSING_COMPLETE", {"dist": dist_traveled, "us": us_dist})
+                self.motor.stop()
+                self.nav_state = NavigationState.REPLANNING
+
+        elif self.nav_state == NavigationState.REPLANNING:
+            # Inject Virtual Obstacle
+            # 15cm ahead of reverse_start_pose (where we saw the obstacle)
+            # Assuming we were moving forward when we hit it.
+            # Or just use current pose + forward vector?
+            # We reversed, so obstacle is in front.
+            obs_dist = 0.20 # 20cm ahead of current (since we reversed ~15cm, obstacle is ~30cm away?)
+            # Wait, if we reversed because US < 15. Now US > 30 or we moved 15.
+            # The obstacle is roughly where we started reversing + 15cm?
+            # Let's approximate: Obstacle is at reverse_start_pose + offset.
+
+            # Use reverse_start_pose orientation
+            ox = self.reverse_start_pose.x + 0.20 * math.cos(self.reverse_start_pose.theta)
+            oy = self.reverse_start_pose.y + 0.20 * math.sin(self.reverse_start_pose.theta)
+
+            self.planner.inject_virtual_obstacle(ox, oy)
+
+            # Find Goal on Original Path (2m ahead)
+            goal_point = self._find_target_on_original_path(self.current_pose, lookahead=2.0)
+            goal_pose = RobotPose(x=goal_point[0], y=goal_point[1], theta=0, timestamp=0)
+
+            # Plan
+            new_path = self.planner.plan(self.current_pose, goal_pose)
+
+            if new_path:
+                self.active_path = new_path
+                self.nav_state = NavigationState.FOLLOWING
+                self.logger.info("REPLAN_SUCCESS", {"len": len(new_path)})
+            else:
+                self.nav_state = NavigationState.BLOCKED
+                self.logger.error("PATH_BLOCKED", {})
+                self.motor.stop()
+
+        elif self.nav_state == NavigationState.BLOCKED:
+            self.motor.stop()
+            self.odometry.update(0, 0)
+
+    def _find_target_on_original_path(self, current_pose, lookahead=2.0) -> Tuple[float, float]:
+        if not self.original_path:
+            return (current_pose.x, current_pose.y) # Fallback
+
+        # Find closest point
+        min_dist_sq = float('inf')
+        closest_idx = 0
+        for i, (px, py) in enumerate(self.original_path):
+            d2 = (px - current_pose.x)**2 + (py - current_pose.y)**2
+            if d2 < min_dist_sq:
+                min_dist_sq = d2
+                closest_idx = i
+
+        # Look forward
+        for i in range(closest_idx, len(self.original_path)):
+            px, py = self.original_path[i]
+            d2 = (px - current_pose.x)**2 + (py - current_pose.y)**2
+            if d2 > lookahead**2:
+                return (px, py)
+
+        return self.original_path[-1]
+
+    def _drive_manual(self, trig_l, trig_r):
         current_time = time.time()
 
         if self.lidar_error_active:
@@ -330,7 +551,6 @@ class RobotOrchestrator:
         if self.is_moving_forward:
              if us_dist < 15.0:
                  factor = 0.0
-                 # Log only if we are actually trying to move
                  if abs(speed_l) > 0.1 or abs(speed_r) > 0.1:
                      self.logger.warn("ULTRASONIC_EMERGENCY_STOP", {"dist": us_dist})
              elif us_dist < COLLISION_DISTANCE_CM or lidar_dist < LIDAR_COLLISION_DISTANCE_M:

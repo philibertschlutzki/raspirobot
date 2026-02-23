@@ -2,6 +2,14 @@ import numpy as np
 from scipy.spatial import KDTree
 import math
 from typing import List, Tuple, Optional
+import json
+import os
+
+# Log-Odds constants
+LO_OCC = 0.85
+LO_FREE = -0.4
+LO_MAX = 5.0
+LO_MIN = -5.0
 
 try:
     from .data_models import RobotPose
@@ -17,6 +25,31 @@ class SLAMEngine:
 
         self.grid = np.zeros((map_size_pixels, map_size_pixels), dtype=np.float32)
         self.reference_points = np.empty((0, 2))
+
+    def _bresenham_line(self, start: np.ndarray, end: np.ndarray) -> np.ndarray:
+        """
+        Generates grid coordinates for a line from start (col, row) to end (col, row).
+        Returns a (N, 2) numpy array of integer coordinates [col, row].
+        Uses linear interpolation (conceptually similar to Bresenham).
+        """
+        x0, y0 = start
+        x1, y1 = end
+
+        dx = abs(x1 - x0)
+        dy = abs(y1 - y0)
+
+        # Determine number of steps (max dimension)
+        steps = int(max(dx, dy))
+
+        if steps == 0:
+            return np.array([[x0, y0]])
+
+        # Generate points
+        xs = np.linspace(x0, x1, steps + 1)
+        ys = np.linspace(y0, y1, steps + 1)
+
+        points = np.vstack((xs, ys)).T
+        return np.round(points).astype(int)
 
     def scan_to_xy(self, scan_data: List[Tuple[float, float]]) -> np.ndarray:
         """Converts scan (angle_deg, dist_mm) to local XY (meters)."""
@@ -146,22 +179,79 @@ class SLAMEngine:
 
         global_points = self.transform_points(local_points, pose)
 
+        # --- Update Reference Points (for ICP) with Voxel Grid Filter ---
         if len(self.reference_points) == 0:
             self.reference_points = global_points
         else:
             self.reference_points = np.vstack((self.reference_points, global_points))
+<<<<<<< refactor/slam-engine-phase6-6382549282473405271
+=======
             if len(self.reference_points) > 10000:
                 # Deterministic FIFO downsampling (keep newest 10000)
                 self.reference_points = self.reference_points[-10000:]
+>>>>>>> main
 
-        indices = (global_points / self.resolution + self.origin).astype(int)
+        # Spatial Downsampling: Voxel Grid Filter
+        # Convert to integer grid coordinates based on resolution
+        grid_coords = (self.reference_points / self.resolution).astype(int)
 
-        mask = (indices[:, 0] >= 0) & (indices[:, 0] < self.map_size) & \
-               (indices[:, 1] >= 0) & (indices[:, 1] < self.map_size)
+        # Keep unique voxels (deterministically)
+        _, unique_indices = np.unique(grid_coords, axis=0, return_index=True)
+        self.reference_points = self.reference_points[unique_indices]
 
-        valid_indices = indices[mask]
+        # --- Update Occupancy Grid with Raycasting (Bresenham + Log-Odds) ---
 
-        rows = valid_indices[:, 1]
-        cols = valid_indices[:, 0]
+        # Robot position in grid
+        start_col = int(pose.x / self.resolution + self.origin[0])
+        start_row = int(pose.y / self.resolution + self.origin[1])
+        start_pixel = np.array([start_col, start_row])
 
-        np.add.at(self.grid, (rows, cols), 1.0)
+        # End positions in grid
+        end_pixels = (global_points / self.resolution + self.origin).astype(int)
+
+        # Process each ray
+        for end_pixel in end_pixels:
+            # Get all points on the line
+            line_points = self._bresenham_line(start_pixel, end_pixel)
+
+            # Filter points within map bounds
+            mask = (line_points[:, 0] >= 0) & (line_points[:, 0] < self.map_size) & \
+                   (line_points[:, 1] >= 0) & (line_points[:, 1] < self.map_size)
+            valid_points = line_points[mask]
+
+            if len(valid_points) == 0:
+                continue
+
+            cols = valid_points[:, 0]
+            rows = valid_points[:, 1]
+
+            # Mark all cells on the ray as free initially
+            self.grid[rows, cols] += LO_FREE
+
+            # Mark the specific hit point as occupied
+            # Only if the last point in the ray corresponds to the target (hit)
+            # (It might be clipped if outside map, but if inside, last point is hit)
+            last_p = valid_points[-1]
+            if np.array_equal(last_p, end_pixel):
+                # Revert free update for the last cell and apply occupied update
+                self.grid[rows[-1], cols[-1]] -= LO_FREE
+                self.grid[rows[-1], cols[-1]] += LO_OCC
+
+        # Clamp values
+        np.clip(self.grid, LO_MIN, LO_MAX, out=self.grid)
+
+    def save_map(self, base_filename: str):
+        """
+        Exports the current grid to .npy and metadata to .json.
+        """
+        # Save Grid
+        np.save(f"{base_filename}.npy", self.grid)
+
+        # Save Metadata
+        metadata = {
+            "map_size_pixels": self.map_size,
+            "resolution_m": self.resolution,
+            "origin_pixels": self.origin.tolist()
+        }
+        with open(f"{base_filename}.json", 'w') as f:
+            json.dump(metadata, f, indent=4)

@@ -42,7 +42,7 @@ class TestRobotOrchestrator(unittest.TestCase):
         old_time = time.time() - (SENSOR_TIMEOUT_STOP_SEC + 1.0)
         self.orchestrator.us_last_valid_time = {"left": old_time, "right": old_time}
 
-        self.orchestrator._drive(1.0, 1.0)
+        self.orchestrator._drive_manual(1.0, 1.0)
 
         self.motor.stop.assert_called()
 
@@ -52,7 +52,7 @@ class TestRobotOrchestrator(unittest.TestCase):
         old_time = time.time() - (SENSOR_TIMEOUT_WARN_SEC + 0.5)
         self.orchestrator.us_last_valid_time = {"left": old_time, "right": old_time}
 
-        self.orchestrator._drive(1.0, 1.0)
+        self.orchestrator._drive_manual(1.0, 1.0)
 
         # Check if speed was reduced
         # Input 1.0 -> throttle 1.0 -> set_speed should be FAIL_FACTOR
@@ -65,7 +65,7 @@ class TestRobotOrchestrator(unittest.TestCase):
         self.orchestrator.us_distances = {"left": 10.0, "right": 10.0} # Valid values
         self.orchestrator.us_last_valid_time = {"left": time.time(), "right": time.time()} # Valid time
 
-        self.orchestrator._drive(1.0, 1.0)
+        self.orchestrator._drive_manual(1.0, 1.0)
 
         self.motor.set_speed.assert_called_with(0.0, 0.0)
 
@@ -75,7 +75,7 @@ class TestRobotOrchestrator(unittest.TestCase):
         self.orchestrator.us_distances = {"left": 25.0, "right": 25.0}
         self.orchestrator.us_last_valid_time = {"left": time.time(), "right": time.time()}
 
-        self.orchestrator._drive(1.0, 1.0)
+        self.orchestrator._drive_manual(1.0, 1.0)
 
         expected_speed = 1.0 * 0.5
         self.motor.set_speed.assert_called_with(expected_speed, expected_speed)

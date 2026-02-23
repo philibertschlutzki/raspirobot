@@ -12,12 +12,17 @@ except ImportError:
     HAS_PLOT = False
 
 try:
+    # Try relative import first (module mode)
     from .data_models import PathRecordingData, RobotPose
     from .slam_engine import SLAMEngine
     from .replay_streamer import ReplayStreamer
 except ImportError:
-    # Add path logic
-    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+    # Fallback for script mode or pytest without package context
+    # Only append if not already present to avoid duplicates
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    if base_dir not in sys.path:
+        sys.path.insert(0, base_dir)
+
     from data_models import PathRecordingData, RobotPose
     from slam_engine import SLAMEngine
     from replay_streamer import ReplayStreamer

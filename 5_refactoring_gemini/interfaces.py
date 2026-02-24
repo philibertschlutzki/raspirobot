@@ -4,7 +4,11 @@ from typing import List, Tuple, Dict, Any, Optional
 class IMotorController(ABC):
     @abstractmethod
     def set_speed(self, left: float, right: float) -> None:
-        """Sets motor speed. Values between -1.0 and 1.0."""
+        """
+        Sets motor speed. Values between -1.0 and 1.0.
+        :param left: Normalized speed for left motor (-1.0 to 1.0)
+        :param right: Normalized speed for right motor (-1.0 to 1.0)
+        """
         pass
 
     @abstractmethod
@@ -25,13 +29,26 @@ class ILidarSensor(ABC):
 
     @abstractmethod
     def get_latest_scan(self) -> List[Tuple[int, float, float]]:
-        """Returns the latest complete scan as a list of (quality, angle, distance)."""
+        """
+        Returns the latest complete scan as a list of (quality, angle, distance).
+        quality: int (0-255)
+        angle: float (degrees)
+        distance: float (mm) - As returned by rplidar hardware.
+        """
+        pass
+
+    @abstractmethod
+    def get_frequency(self) -> float:
+        """Returns the current scanning frequency in Hz."""
         pass
 
 class IUltrasonicSensor(ABC):
     @abstractmethod
     def get_distances(self) -> Dict[str, float]:
-        """Returns distance in cm as {'left': float, 'right': float}."""
+        """
+        Returns distance in cm as {'left': float, 'right': float}.
+        Returns -1.0 on error/timeout.
+        """
         pass
 
 class IInputController(ABC):

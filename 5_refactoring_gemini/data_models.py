@@ -1,4 +1,4 @@
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any, Optional
 from pydantic import BaseModel, ConfigDict
 from enum import Enum
 
@@ -14,6 +14,12 @@ class RobotPose(BaseModel):
     timestamp: float
     model_config = ConfigDict(frozen=True)
 
+class MotorCommand(BaseModel):
+    left_pwm: float
+    right_pwm: float
+    timestamp: float
+    model_config = ConfigDict(frozen=True)
+
 class ControllerSample(BaseModel):
     timestamp: float
     left_duty: float
@@ -25,7 +31,8 @@ class ControllerSample(BaseModel):
 class LidarFrame(BaseModel):
     timestamp: float
     frame_id: int
-    scan_data: List[Tuple[float, float]]  # List of (angle, distance)
+    # List of (quality, angle, distance)
+    scan_data: List[Tuple[int, float, float]]
     controller_states: List[ControllerSample]
     model_config = ConfigDict(frozen=True)
 

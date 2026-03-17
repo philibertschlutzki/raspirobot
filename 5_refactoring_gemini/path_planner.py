@@ -29,9 +29,6 @@ class AStarPlanner:
         """Injects a virtual obstacle at global coordinates (x, y)."""
         self.virtual_obstacles.append((x, y))
 
-    def clear_virtual_obstacles(self):
-        self.virtual_obstacles = []
-
     def plan(self, start_pose: RobotPose, goal_pose: RobotPose) -> List[Tuple[float, float]]:
         """
         Plans a path from start_pose to goal_pose using A* on a local costmap.

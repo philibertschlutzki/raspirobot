@@ -410,20 +410,10 @@ def test_integrated_recording(duration: int = 15, save: bool = False) -> bool:
             print(f'  💾 Gespeichert: {filepath}')
             
             # FIX: Lade mit vollständigem Dateinamen
-            # Extrahiere Dateinamen ohne Verzeichnis-Pfad
-            saved_filename = Path(filepath).name
-            # Entferne .json.gz Endung für session_id
-            if saved_filename.endswith('.json.gz'):
-                load_session_id = saved_filename[:-8]  # Entferne '.json.gz'
-            elif saved_filename.endswith('.json'):
-                load_session_id = saved_filename[:-5]  # Entferne '.json'
-            else:
-                load_session_id = session_id
-            
-            print(f'  🔄 Lade Recording mit ID: {load_session_id}')
+            print(f'  🔄 Lade Recording mit Datei: {filepath}')
             
             try:
-                loaded = storage.load_json(load_session_id)
+                loaded = storage.load_json(filepath)
                 loaded_stats = loaded.get_stats()
                 
                 # Validierung

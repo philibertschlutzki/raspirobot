@@ -30,26 +30,43 @@ class SLAMEngine:
         """
         Generates grid coordinates for a line from start (col, row) to end (col, row).
         Returns a (N, 2) numpy array of integer coordinates [col, row].
-        Uses linear interpolation (conceptually similar to Bresenham).
+        Uses a standard integer-based Bresenham line algorithm to avoid float arrays and allocations.
         """
-        x0, y0 = start
-        x1, y1 = end
+        x0, y0 = int(start[0]), int(start[1])
+        x1, y1 = int(end[0]), int(end[1])
 
         dx = abs(x1 - x0)
         dy = abs(y1 - y0)
 
-        # Determine number of steps (max dimension)
-        steps = int(max(dx, dy))
+        x, y = x0, y0
 
-        if steps == 0:
-            return np.array([[x0, y0]])
+        sx = 1 if x1 > x0 else -1
+        sy = 1 if y1 > y0 else -1
 
-        # Generate points
-        xs = np.linspace(x0, x1, steps + 1)
-        ys = np.linspace(y0, y1, steps + 1)
+        points = []
 
-        points = np.vstack((xs, ys)).T
-        return np.round(points).astype(int)
+        if dx > dy:
+            err = dx / 2.0
+            while x != x1:
+                points.append([x, y])
+                err -= dy
+                if err < 0:
+                    y += sy
+                    err += dx
+                x += sx
+            points.append([x, y])
+        else:
+            err = dy / 2.0
+            while y != y1:
+                points.append([x, y])
+                err -= dx
+                if err < 0:
+                    x += sx
+                    err += dy
+                y += sy
+            points.append([x, y])
+
+        return np.array(points, dtype=int)
 
     def scan_to_xy(self, scan_data: List[Tuple[float, float]]) -> np.ndarray:
         """Converts scan (angle_deg, dist_mm) to local XY (meters)."""

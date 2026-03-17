@@ -303,102 +303,114 @@ class RobotOrchestrator:
             # In Autonomous mode, we must also call odometry.update().
 
             # 2. MCL Update
-            if self.mcl:
-                current_odom = self.odometry.get_pose()
-                if not hasattr(self, '_last_odom'):
-                    self._last_odom = current_odom
-
-                dx = current_odom.x - self._last_odom.x
-                dy = current_odom.y - self._last_odom.y
-                dtheta = current_odom.theta - self._last_odom.theta
-                dtheta = (dtheta + math.pi) % (2 * math.pi) - math.pi
-
-                c = math.cos(self._last_odom.theta)
-                s = math.sin(self._last_odom.theta)
-                dx_local = dx * c + dy * s
-                dy_local = -dx * s + dy * c
-
-                self.mcl.predict((dx_local, dy_local, dtheta))
-                self._last_odom = current_odom
-
-                with self.scan_lock:
-                    scan_data = list(self.latest_scan)
-
-                if scan_data:
-                    res = self.mcl.update(scan_data, current_odom)
-                    self.current_pose = res.pose
-                    if res.unexpected_obstacle_detected:
-                        if self.autonomous_enabled and self.nav_state == NavigationState.FOLLOWING:
-                            self.logger.warn("MCL_OBSTACLE_DETECTED", {})
-                            self.nav_state = NavigationState.REPLANNING
-                            self.motor.stop()
-                else:
-                    self.current_pose = current_odom
+            self._update_mcl()
 
             # 3. Input Handling
-            inp = self.input.get_state()
-            if inp.get("connected"):
-                buttons = inp.get("buttons", {})
-                axes = inp.get("axes", {})
+            if not self._handle_input():
+                break
 
-                # X + Y -> Toggle Recording
-                if buttons.get("X") and buttons.get("Y"):
-                     if not self.is_recording:
-                         self.start_recording()
-                         time.sleep(0.5)
-                     else:
-                         self.stop_recording()
-                         time.sleep(0.5)
+            # 4. Timing & Overrun Detection
+            self._check_timing(loop_start)
 
-                # Toggle Autonomous (e.g., Button A)
-                if buttons.get("A"):
-                     self.set_autonomous(not self.autonomous_enabled)
+    def _update_mcl(self):
+        if not self.mcl:
+            return
+
+        current_odom = self.odometry.get_pose()
+        if not hasattr(self, '_last_odom'):
+            self._last_odom = current_odom
+
+        dx = current_odom.x - self._last_odom.x
+        dy = current_odom.y - self._last_odom.y
+        dtheta = current_odom.theta - self._last_odom.theta
+        dtheta = (dtheta + math.pi) % (2 * math.pi) - math.pi
+
+        c = math.cos(self._last_odom.theta)
+        s = math.sin(self._last_odom.theta)
+        dx_local = dx * c + dy * s
+        dy_local = -dx * s + dy * c
+
+        self.mcl.predict((dx_local, dy_local, dtheta))
+        self._last_odom = current_odom
+
+        with self.scan_lock:
+            scan_data = list(self.latest_scan)
+
+        if scan_data:
+            res = self.mcl.update(scan_data, current_odom)
+            self.current_pose = res.pose
+            if res.unexpected_obstacle_detected:
+                if self.autonomous_enabled and self.nav_state == NavigationState.FOLLOWING:
+                    self.logger.warn("MCL_OBSTACLE_DETECTED", {})
+                    self.nav_state = NavigationState.REPLANNING
+                    self.motor.stop()
+        else:
+            self.current_pose = current_odom
+
+    def _handle_input(self) -> bool:
+        """Handles input and returns False if the loop should break."""
+        inp = self.input.get_state()
+        if inp.get("connected"):
+            buttons = inp.get("buttons", {})
+            axes = inp.get("axes", {})
+
+            # X + Y -> Toggle Recording
+            if buttons.get("X") and buttons.get("Y"):
+                 if not self.is_recording:
+                     self.start_recording()
+                     time.sleep(0.5)
+                 else:
+                     self.stop_recording()
                      time.sleep(0.5)
 
-                # B -> Direction (Manual Only)
-                if buttons.get("B") and not self.autonomous_enabled:
-                     self.is_moving_forward = not self.is_moving_forward
-                     self.logger.info("DIRECTION_CHANGE", {"forward": self.is_moving_forward})
-                     time.sleep(0.2)
+            # Toggle Autonomous (e.g., Button A)
+            if buttons.get("A"):
+                 self.set_autonomous(not self.autonomous_enabled)
+                 time.sleep(0.5)
 
-                # Start -> Stop
-                if buttons.get("START"):
-                     self.is_running = False
-                     break
+            # B -> Direction (Manual Only)
+            if buttons.get("B") and not self.autonomous_enabled:
+                 self.is_moving_forward = not self.is_moving_forward
+                 self.logger.info("DIRECTION_CHANGE", {"forward": self.is_moving_forward})
+                 time.sleep(0.2)
 
-                # Manual Drive if not Autonomous
-                if not self.autonomous_enabled:
-                    trig_l = axes.get("LEFT_TRIGGER", -1.0)
-                    trig_r = axes.get("RIGHT_TRIGGER", -1.0)
-                    self._drive_manual(trig_l, trig_r)
-                else:
-                    self._drive_autonomous()
+            # Start -> Stop
+            if buttons.get("START"):
+                 self.is_running = False
+                 return False
+
+            # Manual Drive if not Autonomous
+            if not self.autonomous_enabled:
+                trig_l = axes.get("LEFT_TRIGGER", -1.0)
+                trig_r = axes.get("RIGHT_TRIGGER", -1.0)
+                self._drive_manual(trig_l, trig_r)
             else:
-                 if not self.autonomous_enabled:
-                    self.motor.set_speed(0, 0)
-                    self.odometry.update(0, 0)
-                 else:
-                    self._drive_autonomous()
+                self._drive_autonomous()
+        else:
+             if not self.autonomous_enabled:
+                self.motor.set_speed(0, 0)
+                self.odometry.update(0, 0)
+             else:
+                self._drive_autonomous()
+        return True
 
-            # Timing & Overrun Detection
-            elapsed = time.time() - loop_start
+    def _check_timing(self, loop_start):
+        elapsed = time.time() - loop_start
 
-            if elapsed > self.max_loop_time:
-                self.logger.warn("LOOP_OVERRUN", {"elapsed": elapsed})
-                self.consecutive_overruns += 1
-            else:
-                self.consecutive_overruns = 0
+        if elapsed > self.max_loop_time:
+            self.logger.warn("LOOP_OVERRUN", {"elapsed": elapsed})
+            self.consecutive_overruns += 1
+        else:
+            self.consecutive_overruns = 0
 
-            if self.consecutive_overruns > 5:
-                self.logger.error("CRITICAL_OVERRUN_STOP", {"consecutive": self.consecutive_overruns})
-                self.motor.stop()
-                self.consecutive_overruns = 0 # Reset to allow recovery or just stop?
-                # Requirement says "bremst der Roboter (PWM hart auf 0.0) und loggt..."
-                # It doesn't say "shut down". Just stop.
+        if self.consecutive_overruns > 5:
+            self.logger.error("CRITICAL_OVERRUN_STOP", {"consecutive": self.consecutive_overruns})
+            self.motor.stop()
+            self.consecutive_overruns = 0 # Reset to allow recovery or just stop?
 
-            sleep_time = self.loop_target_dt - elapsed
-            if sleep_time > 0:
-                time.sleep(sleep_time)
+        sleep_time = self.loop_target_dt - elapsed
+        if sleep_time > 0:
+            time.sleep(sleep_time)
 
     def _drive_autonomous(self):
         if not self.mcl or not self.planner:

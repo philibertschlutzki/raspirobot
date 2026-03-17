@@ -69,22 +69,6 @@ class CompressionType:
     LZMA = "lzma"
 
 
-class DataType:
-    """
-    Datentypen für verschiedene Recording-Komponenten.
-    
-    Attributes:
-        CONTROLLER: Controller-Eingabedaten
-        LIDAR: LIDAR-Scandaten
-        METADATA: Session-Metadaten
-        CHECKPOINT: Wegpunkt-Daten
-    """
-    CONTROLLER = "controller"
-    LIDAR = "lidar"
-    METADATA = "metadata"
-    CHECKPOINT = "checkpoint"
-
-
 # Dateiendungen
 FILE_EXTENSIONS = {
     CompressionType.NONE: ".json",

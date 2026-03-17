@@ -9,6 +9,7 @@ import time
 import re
 import os
 from datetime import datetime
+import monitor_utils
 
 class RaspberryPiMonitor:
     """Erweiterte Klasse zur Überwachung von Raspberry Pi 5 Systemwerten"""
@@ -199,21 +200,7 @@ class RaspberryPiMonitor:
 
     def get_voltages(self):
         """Liest Standard-Spannungen aus"""
-        voltages = {}
-        voltage_types = {
-            "core": "VideoCore",
-            "sdram_c": "RAM Core",
-            "sdram_i": "RAM I/O",
-            "sdram_p": "RAM Phy"
-        }
-
-        for vtype, description in voltage_types.items():
-            volt_str = self.run_command(f"vcgencmd measure_volts {vtype}")
-            if "volt=" in volt_str:
-                volt = volt_str.replace("volt=", "").replace("V", "")
-                voltages[description] = float(volt)
-
-        return voltages
+        return monitor_utils.get_voltages(self.run_command)
 
     def get_pmic_data(self):
         """Liest detaillierte PMIC-Daten (Spannungen und Ströme)"""

@@ -12,7 +12,7 @@ from robot_orchestrator import RobotOrchestrator
 from recorder import DataRecorder
 from odometry import OdometryEngine
 from mocks.mock_hardware import MockMotorController, MockLidarSensor, MockUltrasonicSensor, MockInputController
-from data_models import PathRecordingData
+from data_models import PathRecordingData, LidarFrame
 
 class VirtualClock:
     def __init__(self):
@@ -111,18 +111,19 @@ def test_tc4_1_long_recording() -> None:
             # Simulate a few frames
             # Lidar thread would call log_frame.
             # We simulate lidar thread loop manually for a few iterations
-            for _ in range(10):
+            for i in range(10):
                 scan = lidar.get_latest_scan()
-                # Frame creation logic
-                # ...
-                # Easier: just verify orchestrator calls log_frame if we mock recorder?
-                # But we want integration test with real recorder.
+                scan_data = [(angle, dist) for _, angle, dist in scan]
+                frame = LidarFrame(
+                    timestamp=clock.time(),
+                    frame_id=i,
+                    scan_data=scan_data,
+                    controller_states=[]
+                )
+                orch.recorder.log_frame(frame)
 
-                # Let's manually trigger frame logging as if lidar thread did it
-                # Lidar thread calls log_frame.
-                # We can call it directly on recorder for test?
-                # Or just verify start/stop works with Real Recorder instance.
-                pass
+            # Wait a little bit for the background worker thread to process the frames
+            time.sleep(0.5)
 
             orch.stop_recording()
 
@@ -135,6 +136,15 @@ def test_tc4_1_long_recording() -> None:
         # Verify content
         with gzip.open(filepath, 'rt') as f:
             lines = f.readlines()
-            assert len(lines) >= 1 # At least metadata
+            assert len(lines) == 12 # 1 metadata + 10 frames + 1 end_metadata
             meta = json.loads(lines[0])
             assert meta["type"] == "metadata"
+            assert meta["session_id"] == session_id
+
+            frame1 = json.loads(lines[1])
+            assert "timestamp" in frame1
+            assert "frame_id" in frame1
+            assert frame1["frame_id"] == 0
+
+            end_meta = json.loads(lines[-1])
+            assert end_meta["type"] == "session_end"

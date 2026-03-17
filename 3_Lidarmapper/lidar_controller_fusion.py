@@ -565,36 +565,6 @@ class CoordinateTransformer:
 
         return transformed_data
 
-    def robot_to_global_coordinates(self, robot_points: List[Tuple[float, float]],
-                                  robot_pose: RobotPose) -> List[Tuple[float, float]]:
-        """
-        Transformiert Roboter-relative Punkte in globale Koordinaten.
-
-        Args:
-            robot_points: Liste von (x, y) Punkten relativ zum Roboter
-            robot_pose: Aktuelle Roboter-Position und -Orientierung
-
-        Returns:
-            Liste der Punkte in globalen Koordinaten
-        """
-        global_points = []
-
-        cos_theta = math.cos(robot_pose.theta)
-        sin_theta = math.sin(robot_pose.theta)
-
-        for x_robot, y_robot in robot_points:
-            # Rotation um Roboter-Orientierung
-            x_rotated = x_robot * cos_theta - y_robot * sin_theta
-            y_rotated = x_robot * sin_theta + y_robot * cos_theta
-
-            # Translation um Roboter-Position
-            x_global = x_rotated + robot_pose.x
-            y_global = y_rotated + robot_pose.y
-
-            global_points.append((x_global, y_global))
-
-        return global_points
-
 
 # =============================================================================
 # KOLLISIONSERKENNUNG UND DATA FUSION

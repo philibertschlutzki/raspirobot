@@ -309,16 +309,6 @@ class CollisionStatus:
             'collision_critical': self.collision_critical
         }
 
-@dataclass
-class LidarStats:
-    """LIDAR-Verarbeitungsstatistiken."""
-    scans_processed: int = 0
-    processing_rate_hz: float = 0.0
-    avg_points_per_scan: float = 0.0
-    error_count: int = 0
-    last_error_time: float = 0.0
-    buffer_utilization: float = 0.0
-
 # ============================================================================
 # SIGNAL HANDLER
 # ============================================================================

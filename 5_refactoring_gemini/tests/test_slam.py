@@ -12,24 +12,33 @@ from data_models import RobotPose
 def test_icp_translation():
     slam = SLAMEngine(max_correspondence_dist=2.0)
 
-    # Create reference map (horizontal line at y=1)
-    slam.reference_points = np.array([[i, 1.0] for i in range(10)], dtype=np.float32)
+    # Create reference map (L-shape to fix translation in both X and Y)
+    # L-shape: (0,0) to (5,0) and (0,0) to (0,5)
+    points = []
+    for i in range(6):
+        points.append([float(i), 0.0])
+        points.append([0.0, float(i)])
+    slam.reference_points = np.array(points, dtype=np.float32)
 
-    # Create local scan (horizontal line at y=0 relative to robot)
-    local_scan = np.array([[i, 0.0] for i in range(10)], dtype=np.float32)
+    # Create local scan shifted by (-1.0, -1.0)
+    # If robot is at (1.0, 1.0), it sees the map shifted by (-1.0, -1.0)
+    local_scan_points = []
+    for i in range(6):
+        local_scan_points.append([float(i) - 1.0, -1.0])
+        local_scan_points.append([-1.0, float(i) - 1.0])
+    local_scan = np.array(local_scan_points, dtype=np.float32)
 
     initial_pose = RobotPose(x=0.0, y=0.0, theta=0.0, timestamp=0.0)
 
     new_pose = slam.icp(local_scan, initial_pose)
 
+    assert math.isclose(new_pose.x, 1.0, abs_tol=0.1)
     assert math.isclose(new_pose.y, 1.0, abs_tol=0.1)
-    assert math.isclose(new_pose.x, 0.0, abs_tol=0.1)
     assert math.isclose(new_pose.theta, 0.0, abs_tol=0.1)
 
 def test_icp_rotation():
     slam = SLAMEngine(max_correspondence_dist=1.0)
 
-    # Use a corner shape to fix translation and rotation
     # L-shape: (0,0) to (5,0) and (0,0) to (0,5)
     points = []
     for i in range(6):

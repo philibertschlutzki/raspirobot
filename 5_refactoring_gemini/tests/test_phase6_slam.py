@@ -26,10 +26,8 @@ def test_spatial_downsampling():
         points.append((1.0 + i*0.0001, 1.0 + i*0.0001)) # All within 0.005m spread
 
     # Create a dummy scan format: List[Tuple[float, float]] -> (angle, dist_mm)
-    # We need to reverse engineer scan_to_xy or just hack reference_points directly?
-    # update_map takes scan_data. Let's construct scan data that maps to these points.
-    # To simplify, we can test the logic if we could access the internal method,
-    # but update_map is the public API.
+    # We test via the public API `update_map` by constructing valid scan_data
+    # (reverse engineering scan_to_xy) to ensure realistic system behavior.
     # Let's create a scenario where robot is at 0,0 and points are at specific angles/distances.
 
     scan_data = []

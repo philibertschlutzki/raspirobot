@@ -24,7 +24,24 @@ class SLAMEngine:
         self.max_correspondence_dist = max_correspondence_dist
 
         self.grid = np.zeros((map_size_pixels, map_size_pixels), dtype=np.float32)
-        self.reference_points = np.empty((0, 2))
+
+        # Pre-allocated buffer for reference points to avoid np.vstack reallocations
+        self._max_ref_points = 10000
+        self._ref_buffer = np.empty((self._max_ref_points * 2, 2), dtype=np.float32)
+        self._num_ref_points = 0
+
+    @property
+    def reference_points(self) -> np.ndarray:
+        return self._ref_buffer[:self._num_ref_points]
+
+    @reference_points.setter
+    def reference_points(self, val: np.ndarray):
+        n = len(val)
+        if n > self._max_ref_points:
+            val = val[-self._max_ref_points:]
+            n = self._max_ref_points
+        self._ref_buffer[:n] = val
+        self._num_ref_points = n
 
     def _bresenham_line(self, start: np.ndarray, end: np.ndarray) -> np.ndarray:
         """
@@ -180,15 +197,26 @@ class SLAMEngine:
         global_points = self.transform_points(local_points, pose)
 
         # --- Update Reference Points (for ICP) with Voxel Grid Filter ---
-        if len(self.reference_points) == 0:
-            self.reference_points = global_points
-        else:
-            self.reference_points = np.vstack((self.reference_points, global_points))
+        n_new = len(global_points)
+        if n_new > 0:
+            buffer_capacity = len(self._ref_buffer)
 
+            # If adding new points exceeds capacity, compact the buffer
+            if self._num_ref_points + n_new > buffer_capacity:
+                keep = self._max_ref_points - n_new
+                if keep > 0:
+                    # Keep the newest `keep` points
+                    self._ref_buffer[:keep] = self._ref_buffer[self._num_ref_points - keep:self._num_ref_points]
+                    self._num_ref_points = keep
+                else:
+                    # New points exceed max_ref_points, only keep the newest max_ref_points of them
+                    self._num_ref_points = 0
+                    global_points = global_points[-self._max_ref_points:]
+                    n_new = len(global_points)
 
-            if len(self.reference_points) > 10000:
-                # Deterministic FIFO downsampling (keep newest 10000)
-                self.reference_points = self.reference_points[-10000:]
+            # Append new points to the buffer
+            self._ref_buffer[self._num_ref_points:self._num_ref_points + n_new] = global_points
+            self._num_ref_points += n_new
 
 
         # Spatial Downsampling: Voxel Grid Filter

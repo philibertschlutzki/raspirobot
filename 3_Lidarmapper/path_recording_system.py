@@ -28,7 +28,6 @@ Autor: Robotics Development Team
 
 import json
 import gzip
-import pickle
 import struct
 import hashlib
 import os

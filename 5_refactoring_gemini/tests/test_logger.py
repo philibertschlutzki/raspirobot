@@ -15,6 +15,45 @@ def test_logger_singleton():
     l2 = get_logger()
     assert l1 is l2
 
+def test_logger_multithreaded_initialization():
+    import threading
+
+    # Store the original instance to restore it later
+    original_instance = Logger._instance
+
+    try:
+        # Reset the singleton for the test
+        Logger._instance = None
+
+        num_threads = 20
+        instances = [None] * num_threads
+        barrier = threading.Barrier(num_threads)
+
+        def init_logger(index):
+            barrier.wait()  # synchronize start to maximize race conditions
+            instances[index] = Logger()
+
+        threads = []
+        for i in range(num_threads):
+            t = threading.Thread(target=init_logger, args=(i,))
+            threads.append(t)
+            t.start()
+
+        for t in threads:
+            t.join()
+
+        # Assert all threads created an instance
+        assert all(instance is not None for instance in instances)
+
+        # Assert all threads got the exact same instance
+        first_instance = instances[0]
+        for instance in instances[1:]:
+            assert instance is first_instance
+
+    finally:
+        # Restore the original singleton state
+        Logger._instance = original_instance
+
 def test_logger_writes_jsonl():
     with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False) as tmp:
         log_path = tmp.name

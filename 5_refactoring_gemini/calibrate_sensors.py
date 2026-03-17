@@ -14,13 +14,7 @@ except ImportError:
     FRONT_BUMPER_OFFSET_X = 0.03
     SENSOR_UPDATE_HZ = 10
 
-def calibrate():
-    print("Starte Sensorkalibrierung...")
-    print(f"Bitte Roboter exakt 20cm vor eine Wand stellen (gemessen von Vorderkante).")
-    print(f"Front Bumper Offset: {FRONT_BUMPER_OFFSET_X}m")
-    expected_wall_x = 0.20 + FRONT_BUMPER_OFFSET_X
-    print(f"Erwartete Wand-Position X: {expected_wall_x:.4f}m")
-
+def setup_sensors():
     lidar = None
     ultrasonic = None
 
@@ -40,7 +34,7 @@ def calibrate():
             ultrasonic.distances = {"left": 20.0, "right": 20.0}
         except ImportError:
             print("Mock Hardware nicht gefunden. Tests/mocks im Pfad?")
-            return
+            return None, None
     else:
         try:
             from hardware.real_lidar import RealLidarSensor
@@ -49,8 +43,11 @@ def calibrate():
             ultrasonic = RealUltrasonicSensor()
         except ImportError:
             print("Hardware-Module nicht gefunden. Läuft dies auf dem Pi?")
-            return
+            return None, None
 
+    return lidar, ultrasonic
+
+def collect_sensor_data(lidar, ultrasonic):
     print("Sensoren werden gestartet...")
     lidar.start()
 
@@ -78,7 +75,9 @@ def calibrate():
         time.sleep(0.1)
 
     lidar.stop()
+    return lidar_dists, us_left_dists, us_right_dists
 
+def calculate_calibration_data(expected_wall_x, lidar_dists, us_left_dists, us_right_dists):
     if not lidar_dists or not us_left_dists:
         print("Warnung: Keine ausreichenden Daten.")
         # Just use defaults if failing in mock to show file creation
@@ -107,11 +106,27 @@ def calibrate():
         "ultrasonic_offset_y_right": -0.10,
         "calibration_timestamp": time.time()
     }
+    return calib_data
 
+def save_calibration(calib_data):
     with open("calibration.json", "w") as f:
         json.dump(calib_data, f, indent=4)
-
     print("Kalibrierung gespeichert.")
+
+def calibrate():
+    print("Starte Sensorkalibrierung...")
+    print(f"Bitte Roboter exakt 20cm vor eine Wand stellen (gemessen von Vorderkante).")
+    print(f"Front Bumper Offset: {FRONT_BUMPER_OFFSET_X}m")
+    expected_wall_x = 0.20 + FRONT_BUMPER_OFFSET_X
+    print(f"Erwartete Wand-Position X: {expected_wall_x:.4f}m")
+
+    lidar, ultrasonic = setup_sensors()
+    if not lidar or not ultrasonic:
+        return
+
+    lidar_dists, us_left_dists, us_right_dists = collect_sensor_data(lidar, ultrasonic)
+    calib_data = calculate_calibration_data(expected_wall_x, lidar_dists, us_left_dists, us_right_dists)
+    save_calibration(calib_data)
 
 if __name__ == "__main__":
     calibrate()

@@ -106,8 +106,9 @@ class MCLEngine:
         # Arrays for broadcasting
         # scan_angles: (K,)
         # scan_dists: (K,)
-        scan_angles = np.array([math.radians(a) for a, d in downsampled_scan])
-        scan_dists = np.array([d / 1000.0 for a, d in downsampled_scan]) # mm to m
+        downsampled_arr = np.array(downsampled_scan, dtype=float)
+        scan_angles = np.radians(downsampled_arr[:, 0])
+        scan_dists = downsampled_arr[:, 1] / 1000.0 # mm to m
 
         # Filter valid rays
         valid_mask = (scan_dists > 0.05) & (scan_dists < 10.0)

@@ -35,6 +35,63 @@ Arbeitsverzeichnis (beim Aufruf oben also `~/raspirobot/path_recordings/`).
 
 Aufnahmen unter 5 s werden beim Stoppen per X + Y verworfen.
 
+## Weg aufzeichnen und autonom abfahren
+
+Zwei Scripts, beide als root:
+
+```bash
+cd ~/raspirobot
+sudo /home/johndoe/.venv/bin/python run_path_recording.py   # Weg per Controller fahren
+sudo /home/johndoe/.venv/bin/python run_path_follow.py      # neuesten Weg abfahren
+```
+
+**Aufzeichnen** (`run_path_recording.py`): Bedienung wie bei
+`run_xbox_recording.py`. Jede gespeicherte Aufnahme (X + Y, mindestens 5 s)
+schreibt zusätzlich `path_recordings/<session>_path.json.gz` mit einem
+Wegpunkt je 2 cm Strecke oder 5° Drehung. Die Posen sind relativ zum
+Startpunkt der Aufnahme; Quelle ist die SLAM-Pose, ohne LIDAR die Odometrie.
+In diesem Script rechnet die Odometrie die Richtung je Rad ein, ein Tank-Turn
+ist also eine Drehung (siehe Einschränkung 3).
+
+**Abfahren** (`run_path_follow.py [datei]`): Ohne Datei wird der neueste
+`*_path.json.gz` genommen. Vorher den Roboter an den Startpunkt der Aufnahme
+stellen, in dieselbe Ausrichtung.
+
+| Eingabe | Wirkung |
+| :-- | :-- |
+| A | Fahrt starten (vorher stehen die Motoren) |
+| B oder Start | Not-Aus: Motoren sofort aus, Programm endet |
+| Trigger während der Fahrt drücken | Not-Aus |
+| Strg+C | Motoren aus, Programm endet |
+
+Der Regler (`raspirobot/path/follower.py`) ist Pure Pursuit: Zielpunkt 25 cm
+voraus auf dem Weg, ab 40° Richtungsfehler Drehen auf der Stelle. Rückwärts
+aufgezeichnete Stücke fährt er rückwärts, am Ende dreht er auf die
+aufgezeichnete Endausrichtung. Geschwindigkeit fest `FOLLOW_DUTY` (9 %).
+
+Abbruch mit stehenden Motoren, wenn
+
+- der Controller die Verbindung verliert,
+- der Roboter mehr als 0,5 m vom Weg abkommt,
+- 20 s kein Fortschritt auf dem Weg erkennbar ist,
+- ein Hindernis länger als 15 s im kritischen Bereich bleibt (bis dahin wartet er),
+- die SLAM-Pose länger als 10 s `LOST` oder älter als 1 s ist (bis dahin wartet er),
+- im Regler eine Exception auftritt.
+
+Alle Werte stehen unter `FOLLOW_*` in `config.py`. Der Kollisionsschutz sieht
+nur nach vorn (Einschränkung 1); beim Rückwärtsfahren schützt er nicht.
+
+`--modus eingaben <aufnahme>.json.gz` spielt stattdessen die aufgezeichneten
+Controller-Eingaben zeitgetreu ab, ohne Positionsregelung. Das geht auch mit
+älteren Aufnahmen ohne Wegdatei, driftet aber ohne Korrektur.
+
+Ohne Rad-Encoder hängt die Genauigkeit an der Odometrie und am Scan-Matching.
+Die Annahme 100 % Duty = 0,5 m/s ist nicht gemessen; weil Aufzeichnen und
+Abfahren dasselbe Modell nutzen, hebt sich ein konstanter Skalenfehler
+weitgehend auf, ein Totbereich der Motoren bei kleinem Duty Cycle nicht.
+Beim Abfahren baut SLAM eine neue Karte ab dem Startpunkt auf; die Karte der
+Aufnahme wird nicht geladen.
+
 ## Hardware laut Code
 
 Pin-Nummern sind BCM-Nummern, alle Werte stehen in `raspirobot/config.py`.
@@ -107,10 +164,12 @@ rec = PathRecordingStorageManager("path_recordings").load_json("path_recordings/
    360° wird nicht ausgewertet. Ob 0° zur Fahrzeugfront zeigt, hängt vom Einbau ab.
 2. **Die Pose (Odometrie wie SLAM) wird nicht aufgezeichnet**, obwohl der Header
    `pose_tracking: true` enthält. Für das Nachfahren eines Pfads fehlen damit
-   Positionsdaten in den Aufnahmen.
+   Positionsdaten in den Aufnahmen. `run_path_recording.py` schreibt sie in eine
+   eigene Wegdatei.
 3. **Odometrie beim Tank-Turn:** Die Richtungspins gehen nicht ein. Beim
    Drehen auf der Stelle (beide Duty Cycles gleich) berechnet die Odometrie
-   eine Geradeausfahrt.
+   eine Geradeausfahrt. `run_path_recording.py` und `run_path_follow.py`
+   werten die Richtung je Rad aus (`PoseTracker(use_wheel_directions=True)`).
 4. **Ultraschall-Ausfall:** Ungültige Messungen behalten den letzten Wert; es
    gibt keine Erkennung veralteter Werte.
 5. **Metadaten ohne Wirkung:** `deadzone: 0.05` und die LIDAR-Offsets
@@ -159,6 +218,8 @@ pytest tests/
 
 ```
 run_xbox_recording.py        Einstieg (root-Prüfung, startet RobotApp)
+run_path_recording.py        Einstieg: manuelle Fahrt mit Wegaufzeichnung (TeachApp)
+run_path_follow.py           Einstieg: Weg autonom abfahren (PathFollowApp)
 raspirobot/
   config.py                  alle Konstanten
   app.py                     Setup, Threads, Steuerungs-Loop, Cleanup
@@ -171,5 +232,9 @@ raspirobot/
   recording/data_format.py   Datenklassen des Dateiformats
   recording/storage.py       Speichern/Laden mit Prüfsumme und Backups
   hardware/                  ultrasonic, motors, lidar, xbox_controller, status_led
+  path/waypoints.py          Wegpunkte, Pose-Quelle (SLAM/Odometrie), Wegdatei
+  path/teach.py              TeachApp: RobotApp plus Wegaufzeichnung
+  path/follower.py           Regler (Pure Pursuit) und Abspielen der Eingaben
+  path/follow_app.py         PathFollowApp: Abfahren mit Not-Aus und Abbruchbedingungen
 tests/                       pytest, ohne Hardware
 ```

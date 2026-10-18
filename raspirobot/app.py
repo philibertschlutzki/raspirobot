@@ -34,6 +34,9 @@ from .recorder import Recorder
 
 
 class RobotApp:
+    # Unterklassen setzen True, damit die Odometrie die Richtung je Rad auswertet (Tank-Turn als Drehung).
+    USE_WHEEL_DIRECTIONS = False
+
     def __init__(self):
         self.running = False
         self.shutdown_event = threading.Event()
@@ -43,14 +46,20 @@ class RobotApp:
         self.controller = XboxController()
         self.lidar = Lidar()
         self.status = StatusIndicator()
-        self.pose = PoseTracker(is_moving_forward=lambda: self.controller.state.is_moving_forward)
+        self.pose = PoseTracker(
+            is_moving_forward=lambda: self.controller.state.is_moving_forward,
+            use_wheel_directions=self.USE_WHEEL_DIRECTIONS,
+        )
         self.localizer = Localizer(self.pose.get_pose) if config.SLAM_ENABLED else None
-        self.recorder = Recorder(
+        self.recorder = self._create_recorder()
+        self._threads = []
+
+    def _create_recorder(self) -> Recorder:
+        return Recorder(
             status_indicator=self.status,
             reset_pose=self.pose.reset,
             lidar_connected=lambda: self.lidar.connected,
         )
-        self._threads = []
 
     def _on_lidar_scan(self, timestamp: float, scan, scan_index: int) -> None:
         """Wird vom LIDAR-Thread je Scan aufgerufen; beide Empfänger blockieren nicht."""
@@ -148,6 +157,7 @@ class RobotApp:
 
         cmd = compute_drive_command(left_duty, right_duty, state.a_pressed, state.is_moving_forward)
         self.motors.set_direction(cmd.left_backward, cmd.right_backward)
+        self.pose.set_wheel_directions(cmd.left_backward, cmd.right_backward)
         self._apply_motor_speed(cmd.left_duty, cmd.right_duty)
         return left_duty, right_duty
 

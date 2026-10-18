@@ -24,11 +24,14 @@ def integrate_pose(x, y, theta, left_duty, right_duty, is_moving_forward, dt):
     Rückwärtsmodus negativ. Die Richtungspins (z. B. gegenläufige Räder beim
     Tank-Turn) gehen nicht ein, nur ``is_moving_forward``.
     """
+    sign = 1.0 if is_moving_forward else -1.0
+    return integrate_pose_signed(x, y, theta, sign * left_duty, sign * right_duty, dt)
+
+
+def integrate_pose_signed(x, y, theta, left_duty, right_duty, dt):
+    """Wie ``integrate_pose``, aber mit vorzeichenbehafteten Duty Cycles je Rad (negativ = rückwärts)."""
     v_left = (left_duty / 100.0) * config.ODOMETRY_MAX_SPEED_M_S
     v_right = (right_duty / 100.0) * config.ODOMETRY_MAX_SPEED_M_S
-    if not is_moving_forward:
-        v_left = -v_left
-        v_right = -v_right
 
     v = (v_left + v_right) / 2.0
     omega = (v_right - v_left) / config.WHEEL_BASE_M
@@ -48,9 +51,18 @@ def integrate_pose(x, y, theta, left_duty, right_duty, is_moving_forward, dt):
 class PoseTracker:
     """Integriert die Pose mit MAX_POSE_UPDATE_HZ aus den zuletzt gesetzten Duty Cycles."""
 
-    def __init__(self, is_moving_forward):
-        """``is_moving_forward``: Funktion, die die aktuelle Fahrtrichtung liefert."""
+    def __init__(self, is_moving_forward, use_wheel_directions: bool = False):
+        """
+        Args:
+            is_moving_forward: Funktion, die die aktuelle Fahrtrichtung liefert.
+            use_wheel_directions: Statt ``is_moving_forward`` die mit
+                ``set_wheel_directions`` gesetzten Richtungen je Rad verwenden.
+                Dann rechnet die Odometrie auch den Tank-Turn als Drehung.
+        """
         self._is_moving_forward = is_moving_forward
+        self._use_wheel_directions = use_wheel_directions
+        self.left_backward = False
+        self.right_backward = False
         self._lock = threading.Lock()
         self._x = 0.0
         self._y = 0.0
@@ -64,11 +76,20 @@ class PoseTracker:
         self.left_duty = left_duty
         self.right_duty = right_duty
 
+    def set_wheel_directions(self, left_backward: bool, right_backward: bool) -> None:
+        self.left_backward = left_backward
+        self.right_backward = right_backward
+
     def step(self, dt: float) -> None:
         with self._lock:
-            self._x, self._y, self._theta = integrate_pose(
-                self._x, self._y, self._theta, self.left_duty, self.right_duty, self._is_moving_forward(), dt
-            )
+            if self._use_wheel_directions:
+                left = -self.left_duty if self.left_backward else self.left_duty
+                right = -self.right_duty if self.right_backward else self.right_duty
+                self._x, self._y, self._theta = integrate_pose_signed(self._x, self._y, self._theta, left, right, dt)
+            else:
+                self._x, self._y, self._theta = integrate_pose(
+                    self._x, self._y, self._theta, self.left_duty, self.right_duty, self._is_moving_forward(), dt
+                )
             self._timestamp = time.time()
 
     def reset(self) -> None:

@@ -14,6 +14,7 @@ class RobotPose:
     y: float      # m
     theta: float  # rad, 0 = Startausrichtung, normalisiert auf [-pi, pi) nach Kurvenfahrt
     timestamp: float
+    epoch: int = 0  # zählt Resets hoch; wer Pose-Differenzen bildet, muss bei Änderung neu ansetzen
 
 
 def integrate_pose(x, y, theta, left_duty, right_duty, is_moving_forward, dt):
@@ -55,6 +56,7 @@ class PoseTracker:
         self._y = 0.0
         self._theta = 0.0
         self._timestamp = 0.0
+        self._epoch = 0
         self.left_duty = 0.0
         self.right_duty = 0.0
 
@@ -74,10 +76,11 @@ class PoseTracker:
             self._x = 0.0
             self._y = 0.0
             self._theta = 0.0
+            self._epoch += 1
 
     def get_pose(self) -> RobotPose:
         with self._lock:
-            return RobotPose(self._x, self._y, self._theta, self._timestamp)
+            return RobotPose(self._x, self._y, self._theta, self._timestamp, self._epoch)
 
     def run(self, should_run) -> None:
         print(f"[THREAD] Pose Thread gestartet ({config.MAX_POSE_UPDATE_HZ} Hz)")

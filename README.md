@@ -55,8 +55,8 @@ des Pi fest und ergibt sich nicht aus dem Code.
 
 ## Funktionsweise
 
-Threads: Ultraschall (Zieltakt 10 Hz), LIDAR (ein Durchlauf je Scan), Pose (50 Hz),
-LED (20 Hz). Der Steuerungs-Loop läuft im Hauptthread mit 50 Hz und gibt
+Threads: Ultraschall (Zieltakt 10 Hz), LIDAR (ein Durchlauf je Scan), Localization
+(neuester Scan), Pose (50 Hz), LED (20 Hz). Der Steuerungs-Loop läuft im Hauptthread mit 50 Hz und gibt
 einmal pro Sekunde eine Statuszeile aus.
 
 **Kollisionsschutz** (`raspirobot/collision.py`, `raspirobot/drive.py`):
@@ -69,6 +69,25 @@ einmal pro Sekunde eine Statuszeile aus.
 **Odometrie** (`raspirobot/odometry.py`): Koppelnavigation aus den gesetzten
 Duty Cycles (keine Rad-Encoder). Annahme 100 % Duty = 0,5 m/s, Radabstand
 0,20 m. Die Pose wird beim Start einer Aufnahme auf (0, 0, 0) gesetzt.
+
+**Positionsbestimmung** (`raspirobot/localization/`): Die Odometrie liefert die
+Vorhersage, ein Abgleich jedes LIDAR-Scans mit einer selbst aufgebauten
+Belegungskarte (2,5 cm Auflösung, 40 × 40 m, Start in der Mitte) korrigiert sie.
+Der Rahmen der Karte ist die Pose beim ersten gültigen Scan (0, 0, 0); sie wird
+nicht mit der Aufnahme zurückgesetzt. Die Statuszeile zeigt
+`SLAM[Status Wertung]:X Y θ`:
+
+- `OK`: Match ist gut (Wertung ≥ 0,60), Pose und Karte wurden aktualisiert.
+- `DEGRADED`: Pose stammt aus der Odometrie, weil der Scan zu wenige Punkte hatte,
+  nicht zur Karte passte oder die Verschiebung nicht eindeutig ist (Flur ohne
+  Merkmale). In einem solchen Flur driftet die Position entlang des Flurs wie die Odometrie.
+- `LOST`: fünf Fehlmatches in Folge; der Roboter sucht jeden Scan global
+  (±0,8 m, alle Winkel) und übernimmt erst ab Wertung 0,75.
+
+Beim Beenden werden `path_recordings/maps/map_<zeit>.npz` (Log-Odds) und `.pgm`
+(Bild) geschrieben. Ohne Encoder bleibt die Genauigkeit begrenzt: gegen eine
+Kartenänderung durch bewegte Hindernisse schützt nur die periodische
+Neuberechnung des Likelihood-Felds; Schleifenschluss gibt es nicht.
 
 **Aufnahme** (`raspirobot/recorder.py`, `raspirobot/recording/`): Pro
 Steuerzyklus ein Controller-Sample (Trigger, Tasten, Richtung) und bis zu fünf
@@ -86,7 +105,7 @@ rec = PathRecordingStorageManager("path_recordings").load_json("path_recordings/
 1. **LIDAR-Sektor:** Der RPLIDAR liefert Winkel von 0° bis 360°. Die Prüfung
    `−45° ≤ Winkel ≤ 45°` erfasst daher nur 0° bis 45°; der Bereich 315° bis
    360° wird nicht ausgewertet. Ob 0° zur Fahrzeugfront zeigt, hängt vom Einbau ab.
-2. **Die Pose wird nicht aufgezeichnet**, obwohl der Header
+2. **Die Pose (Odometrie wie SLAM) wird nicht aufgezeichnet**, obwohl der Header
    `pose_tracking: true` enthält. Für das Nachfahren eines Pfads fehlen damit
    Positionsdaten in den Aufnahmen.
 3. **Odometrie beim Tank-Turn:** Die Richtungspins gehen nicht ein. Beim
@@ -110,6 +129,22 @@ rec = PathRecordingStorageManager("path_recordings").load_json("path_recordings/
 | `20251127_204615_robot01.json.gz` | v3.0.1 | nicht verbunden | 694 | 0 |
 | `20251127_204739_robot01.json.gz` | v3.0.1 | nicht verbunden | 1250 | 0 |
 
+## LIDAR prüfen
+
+```bash
+<venv>/bin/python -m raspirobot.lidar_check      # bewegt keine Motoren
+```
+
+Zeigt Scanrate und die nächste Distanz vorn/links/hinten/rechts im Roboter-Rahmen.
+Hand links vor den Sensor halten: "links" muss die kleinste Distanz zeigen. Sonst
+`LIDAR_ANGLE_SIGN` oder `LIDAR_ANGLE_OFFSET` in `config.py` anpassen. Dieselben
+Werte steuern die Positionsbestimmung; falsche Vorzeichen spiegeln die Karte.
+
+Der RPLIDAR C1 bekommt kein PWM-Kommando mehr (`C1Lidar` in `hardware/lidar.py`):
+Die Bibliothek schickt es beim Scan-Start, der C1 verschluckt dann die nächste
+Antwort und der Scan bricht mit `Descriptor length mismatch` ab. Abgebrochene
+Scans werden bis zu `LIDAR_MAX_RESTARTS` Mal neu gestartet.
+
 ## Tests
 
 Die Tests laufen ohne Raspberry Pi; `tests/fakes.py` ersetzt GPIO, PWM,
@@ -130,6 +165,8 @@ raspirobot/
   drive.py                   Trigger → Duty Cycle, Tank-Turn, Kollisionsbegrenzung
   collision.py               Bewertung Ultraschall + LIDAR
   odometry.py                Pose aus Duty Cycles
+  localization/              Scan-Matching gegen Belegungskarte (geometry, grid_map, matcher, localizer)
+  lidar_check.py             LIDAR-Prüfung ohne Motoren
   recorder.py                Start/Stopp/Samples einer Aufnahme
   recording/data_format.py   Datenklassen des Dateiformats
   recording/storage.py       Speichern/Laden mit Prüfsumme und Backups

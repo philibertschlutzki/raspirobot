@@ -1,2 +1,3 @@
 # Tests laufen ohne Hardware; tests/fakes.py ersetzt die Hardware-Module.
 pytest
+numpy

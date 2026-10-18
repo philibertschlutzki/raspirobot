@@ -37,11 +37,21 @@ LIDAR_PORT = "/dev/ttyUSB0"
 LIDAR_BAUDRATE = 460800
 LIDAR_SCAN_TIMEOUT = 2.0
 
-# LIDAR-Einbauposition. Wird nur in die Recording-Metadaten geschrieben und in
-# keiner Berechnung verwendet; die Werte sind nicht vermessen.
+# LIDAR-Einbauposition relativ zum Roboter-Mittelpunkt (x vorn, y links, in m)
+# und Drehung der LIDAR-Nullrichtung gegen den Uhrzeigersinn (Grad). Die Werte
+# sind nicht vermessen. Sie gehen in die Recording-Metadaten und in die
+# Positionsbestimmung (``localization``) ein.
 LIDAR_OFFSET_X = 0.15
 LIDAR_OFFSET_Y = 0.0
 LIDAR_ANGLE_OFFSET = 0.0
+# Der RPLIDAR zählt Winkel im Uhrzeigersinn, der Roboter gegen den Uhrzeigersinn.
+# Mit ``python -m raspirobot.lidar_check`` prüfen (Hand links vor den Sensor halten).
+LIDAR_ANGLE_SIGN = -1
+LIDAR_MIN_QUALITY = 3
+LIDAR_MIN_RANGE_M = 0.10
+LIDAR_MAX_RANGE_M = 10.0
+# Wie oft der LIDAR-Thread einen abgebrochenen Scan neu startet, bevor er aufgibt.
+LIDAR_MAX_RESTARTS = 5
 
 # Kollisionsschwellen
 COLLISION_DISTANCE_CM = 30.0       # Ultraschall
@@ -83,3 +93,24 @@ ODOMETRY_MAX_SPEED_M_S = 0.5
 THREAD_SHUTDOWN_TIMEOUT_SEC = 3.0
 LIDAR_STOP_DELAY_SEC = 0.5
 LIDAR_MOTOR_STOP_DELAY_SEC = 0.3
+
+# Positionsbestimmung (Scan-Matching gegen eine selbst aufgebaute Karte)
+SLAM_ENABLED = True
+SLAM_MAP_SIZE_M = 40.0             # Kantenlänge der quadratischen Karte, Start in der Mitte
+SLAM_RESOLUTION_M = 0.025
+SLAM_LIKELIHOOD_SIGMA_M = 0.06     # Breite der Wahrscheinlichkeitsfunktion um belegte Zellen
+SLAM_COARSE_STEP_M = 0.05          # Rasterschritt der groben Suche; drei Verfeinerungen halbieren ihn je Stufe
+SLAM_RELOCALIZE_STEP_M = 0.10
+SLAM_MIN_POINTS = 60               # weniger gültige Punkte: Scan wird nicht ausgewertet
+SLAM_ACCEPT_SCORE = 0.60           # mittlere Trefferwertung (0..1), ab der ein Match gilt
+SLAM_RELOCALIZE_SCORE = 0.75       # strengere Schwelle für das Wiederfinden nach Verlust
+SLAM_NARROW_XY_M = 0.10            # Suchfenster um die Odometrie-Vorhersage
+SLAM_NARROW_THETA_RAD = 0.08
+SLAM_WIDE_XY_M = 0.35              # zweiter Versuch, wenn das enge Fenster nicht reicht
+SLAM_WIDE_THETA_RAD = 0.35
+SLAM_RELOCALIZE_XY_M = 0.8
+SLAM_PRIOR_PENALTY_PER_M = 0.05    # bevorzugt bei Gleichstand die Vorhersage
+SLAM_PRIOR_PENALTY_PER_RAD = 0.05
+SLAM_AMBIGUITY_MARGIN = 0.10       # ein ≥ 2 Schritte entfernter Treffer, der höchstens so viel schlechter ist, macht den Match mehrdeutig
+SLAM_LOST_AFTER = 5                # aufeinanderfolgende Fehlmatches bis Status LOST
+SLAM_MAP_REBUILD_EVERY = 25        # Scans zwischen vollständigen Neuberechnungen des Likelihood-Felds

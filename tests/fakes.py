@@ -114,6 +114,9 @@ def install():
         def __init__(self, *a, **k):
             raise RPLidarException("kein Gerät im Test")
 
+        def _set_pwm(self, pwm):
+            raise AssertionError("SET_PWM darf beim C1 nicht gesendet werden")
+
     rpl.RPLidar = RPLidar
     rpl.RPLidarException = RPLidarException
     sys.modules["rplidar"] = rpl

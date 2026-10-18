@@ -13,6 +13,7 @@ import sys
 import threading
 import time
 import traceback
+from pathlib import Path
 
 import pygame
 import RPi.GPIO as GPIO
@@ -26,6 +27,7 @@ from .hardware.motors import Motors
 from .hardware.status_led import StatusIndicator
 from .hardware.ultrasonic import UltrasonicSensors
 from .hardware.xbox_controller import XboxController
+from .localization import Localizer
 from .log import logger
 from .odometry import PoseTracker
 from .recorder import Recorder
@@ -42,12 +44,19 @@ class RobotApp:
         self.lidar = Lidar()
         self.status = StatusIndicator()
         self.pose = PoseTracker(is_moving_forward=lambda: self.controller.state.is_moving_forward)
+        self.localizer = Localizer(self.pose.get_pose) if config.SLAM_ENABLED else None
         self.recorder = Recorder(
             status_indicator=self.status,
             reset_pose=self.pose.reset,
             lidar_connected=lambda: self.lidar.connected,
         )
         self._threads = []
+
+    def _on_lidar_scan(self, timestamp: float, scan, scan_index: int) -> None:
+        """Wird vom LIDAR-Thread je Scan aufgerufen; beide Empfänger blockieren nicht."""
+        self.recorder.offer_lidar_scan(timestamp, scan, scan_index)
+        if self.localizer:
+            self.localizer.offer_scan(timestamp, scan, scan_index)
 
     def should_run(self) -> bool:
         return self.running and not self.shutdown_event.is_set()
@@ -181,13 +190,22 @@ class RobotApp:
 
         lidar_text = f"LIDAR:{len(self.lidar.latest_scan)} pts" if self.lidar.connected else "LIDAR:N/A"
 
+        slam_text = ""
+        if self.localizer and self.lidar.connected:
+            loc = self.localizer.get_pose()
+            slam_text = (
+                f" | SLAM[{loc.status} {loc.score:.2f}]:X={loc.x:.2f}m Y={loc.y:.2f}m "
+                f"θ={math.degrees(loc.theta):.0f}°"
+            )
+
         print(
             f"[STATUS] {collision_emoji} {mode_text} {direction_emoji} | "
             f"Trigger:L={state.trigger_left:+.2f} R={state.trigger_right:+.2f} | "
             f"PWM:L={left_duty:.1f}% R={right_duty:.1f}% | "
             f"US:L={collision.ultrasonic_left:.0f}cm R={collision.ultrasonic_right:.0f}cm | "
             f"{lidar_text} | "
-            f"Pose:X={pose.x:.2f}m Y={pose.y:.2f}m θ={math.degrees(pose.theta):.0f}°"
+            f"Odom:X={pose.x:.2f}m Y={pose.y:.2f}m θ={math.degrees(pose.theta):.0f}°"
+            f"{slam_text}"
             f"{recording_text}"
         )
 
@@ -239,6 +257,7 @@ class RobotApp:
 
         self.motors.stop()
         self.lidar.shutdown()
+        self._save_map()
         self.status.all_off()
         self.controller.close()
 
@@ -250,6 +269,18 @@ class RobotApp:
 
         logger.info("System heruntergefahren")
         print("[CLEANUP] ✅ Cleanup abgeschlossen")
+
+    def _save_map(self) -> None:
+        if not self.localizer or self.localizer.grid.scans_integrated == 0:
+            return
+        base = Path(config.RECORDING_BASE_DIR) / "maps" / time.strftime("map_%Y%m%d_%H%M%S")
+        try:
+            npz, pgm = self.localizer.save_map(str(base))
+            print(f"[CLEANUP] 🗺️ Karte gespeichert: {pgm}")
+            logger.info(f"Karte gespeichert: {npz}")
+        except Exception as e:
+            print(f"[CLEANUP] ⚠️ Karte nicht gespeichert: {e}")
+            logger.error(f"Karte nicht gespeichert: {e}")
 
     # ------------------------------------------------------------------- Main
 
@@ -271,9 +302,9 @@ class RobotApp:
 
             self._start_thread("Sensor", self.ultrasonic.run)
             if lidar_ok:
-                self._start_thread(
-                    "LIDAR", lambda should_run: self.lidar.run(should_run, self.recorder.offer_lidar_scan)
-                )
+                if self.localizer:
+                    self._start_thread("Localization", self.localizer.run)
+                self._start_thread("LIDAR", lambda should_run: self.lidar.run(should_run, self._on_lidar_scan))
             self._start_thread("Pose", self.pose.run)
             if config.LED_ENABLED:
                 self._start_thread("LED", self.status.run)

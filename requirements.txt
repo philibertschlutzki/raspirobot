@@ -1,7 +1,8 @@
 # Laufzeit auf dem Raspberry Pi. Importiert werden die Module RPi.GPIO,
-# rpi_hardware_pwm, pygame und rplidar. Die auf dem Roboter installierten
+# rpi_hardware_pwm, pygame, rplidar und numpy. Die auf dem Roboter installierten
 # Versionen sind im Repository nicht festgehalten.
 RPi.GPIO
 rpi-hardware-pwm
 pygame
 rplidar-roboticia
+numpy

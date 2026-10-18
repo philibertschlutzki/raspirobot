@@ -208,3 +208,4 @@ __marimo__/
 
 # Backups und Logs der Aufzeichnung
 path_recordings/backups/
+path_recordings/maps/

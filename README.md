@@ -1,107 +1,138 @@
-# RaspiRobot 🤖
+# RaspiRobot
 
-Eine fortschrittliche Entwicklungsplattform für autonome Indoor-Navigation basierend auf einem **Raspberry Pi 5**. Das Projekt fokussiert sich auf die Entwicklung einer nativen, vollständig in Python geschriebenen SLAM- und Navigations-Engine – ganz ohne Rückgriff auf fertige Frameworks wie ROS oder Rad-Encoder (Odometrie).
+Manuelle Fahrt eines Roboters mit Differentialantrieb per Xbox-Controller, mit
+Kollisionsschutz aus zwei Ultraschallsensoren und einem RPLIDAR sowie
+Aufzeichnung von Controller-Eingaben und LIDAR-Scans als `.json.gz`.
 
-Das System nutzt fortschrittliche Sensorfusion (RPLIDAR C1 + Ultraschall) und KI-gestützte Algorithmen-Entwicklung, um das "Kidnapped Robot Problem" zu lösen und Point-to-Point Navigation in unbekannten Umgebungen zu ermöglichen.
+Der Code ist eine Umstrukturierung von
+`3_Lidarmapper/xbox_controller_with_recording_v3.0.1.py` (im Git-Verlauf bis
+Commit `8bee9fa`). Steuerlogik, Schwellwerte, Pins und Dateiformat sind
+unverändert; die Gleichheit von Motor-Ausgaben, Kollisionsbewertung,
+Odometrie und Recording-Header wurde gegen die Originaldatei geprüft.
 
-## ✨ Kern-Vision & Features
+## Start
 
-- **Native Python SLAM-Engine:** Eigenentwickeltes Simultaneous Localization and Mapping (basierend auf Numpy/ICP), das Map-Drift ausschließlich über LIDAR-Scan-Matching korrigiert.
-- **Global Localization (Kidnapped Robot):** Der Roboter kann an einem beliebigen Punkt in der zuvor kartografierten Wohnung abgesetzt werden und findet seine Position selbstständig (z.B. via Monte Carlo Localization / Partikelfilter).
-- **Point-to-Point Navigation:** Zieleingabe über CLI (z.B. `--x 2.5 --y 1.0`). Eine Kombination aus globalem Planer (A*/Dijkstra) und lokalem Planer sorgt für die sichere, hindernisvermeidende Fahrt zum Ziel.
-- **Offline-Simulation & Data Replay:** Ein integrierter Simulator ermöglicht es, auf dem RPi aufgezeichnete Sensor-Datensätze (`.json.gz`) am PC abzuspielen, um Navigations- und SLAM-Algorithmen rasant iterieren zu können.
-- **Hardware-Abstraktion & Sensorfusion:** Robuste Multithreading-Architektur, die Ultraschall-Nahbereichssensorik (<30cm) mit 360°-LIDAR-Daten fusioniert.
-
-## 🛠️ Hardware-Komponenten
-
-- **Zentrale Steuereinheit:** Raspberry Pi 5 (8GB)
-- **Hauptsensor:** RPLIDAR C1 (360° Laser-Distanzsensor)
-- **Nahbereichssensorik:** 4x HC-SR04 Ultraschall-Sensoren (Front, Back, Links, Rechts)
-- **Antrieb:** 2x DC-Motoren mit ZS-X11H Controllern (Differentialantrieb, PWM-gesteuert)
-- **Manuelle Kontrolle:** Xbox Wireless Controller (für Mapping-Fahrten)
-
-### GPIO-Pin-Belegung
-
-| Komponente | Pin | Funktion |
-| :-- | :-- | :-- |
-| Motor Links PWM | 18 | PWM-Signal linker Motor |
-| Motor Links Direction | 27 | Richtungssteuerung links |
-| Motor Links Enable | 22 | Enable-Signal links |
-| Motor Rechts PWM | 13 | PWM-Signal rechter Motor |
-| Motor Rechts Direction | 19 | Richtungssteuerung rechts |
-| Motor Rechts Enable | 26 | Enable-Signal rechts |
-| Ultraschall Front Trigger | 23 | Trigger-Signal vorne |
-| Ultraschall Front Echo | 24 | Echo-Signal vorne |
-| Ultraschall Rechts Trigger | 25 | Trigger-Signal rechts |
-| Ultraschall Rechts Echo | 8 | Echo-Signal rechts |
-| Ultraschall Back Trigger | 7 | Trigger-Signal hinten |
-| Ultraschall Back Echo | 12 | Echo-Signal hinten |
-| Ultraschall Links Trigger | 16 | Trigger-Signal links |
-| Ultraschall Links Echo | 20 | Echo-Signal links |
-| Mikrowellensensor | 21 | Bewegungsdetektion |
-
-## 🚀 Installation
+Das Programm bricht ab, wenn es nicht als root läuft.
 
 ```bash
-# System-Updates
-sudo apt update && sudo apt upgrade -y
-
-# Python-Abhängigkeiten & Hardware-Bibliotheken
-sudo apt install python3-pip python3-venv git python3-rpi.gpio python3-serial -y
-
-# Repository klonen
-git clone https://github.com/philibertschlutzki/raspirobot.git
-cd raspirobot
-
-# Python-Umgebung einrichten
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+cd ~/raspirobot
+sudo /home/johndoe/.venv/bin/python run_xbox_recording.py
 ```
 
-## 🎮 Workflow & Verwendung
+Aufnahmen landen in `path_recordings/` relativ zum aktuellen
+Arbeitsverzeichnis (beim Aufruf oben also `~/raspirobot/path_recordings/`).
 
-Das Projekt befindet sich in aktiver Entwicklung. Der aktuelle Workflow teilt sich in Datenerfassung, Offline-Entwicklung und (zukünftig) Autonomie.
+## Bedienung
 
-### 1. Mapping & Datenerfassung (Aktueller Fokus)
+| Eingabe | Wirkung |
+| :-- | :-- |
+| Linker / rechter Trigger | Duty Cycle linker / rechter Motor, 0 bis 12 % |
+| A halten | Tank-Turn: der stärker gedrückte Trigger gibt Drehrichtung und Duty Cycle vor, Motoren gegenläufig |
+| B | Fahrtrichtung vorwärts ⇄ rückwärts |
+| X + Y gleichzeitig | Aufnahme starten / stoppen |
+| Start | Programm beenden; eine laufende Aufnahme wird unabhängig von ihrer Dauer gespeichert |
+| Strg+C | Programm beenden; eine laufende Aufnahme ab 5 s wird gespeichert |
 
-Fahre den Roboter manuell durch die Umgebung, um hochwertige LIDAR-Daten für die Offline-SLAM-Entwicklung aufzuzeichnen.
+Aufnahmen unter 5 s werden beim Stoppen per X + Y verworfen.
+
+## Hardware laut Code
+
+Pin-Nummern sind BCM-Nummern, alle Werte stehen in `raspirobot/config.py`.
+
+| Funktion | Konfiguration |
+| :-- | :-- |
+| Ultraschall links (HC-SR04) | Trigger GPIO12, Echo GPIO13 |
+| Ultraschall rechts (HC-SR04) | Trigger GPIO23, Echo GPIO24 |
+| Motor-Richtung links / rechts | GPIO20 / GPIO21, HIGH = vorwärts |
+| Motor-PWM links / rechts | `pwmchip0`, Kanal 0 / 1, 1000 Hz |
+| Status-LED | GPIO22 (aktiv) |
+| Buzzer | GPIO25 (im Code deaktiviert) |
+| LIDAR | `/dev/ttyUSB0`, 460800 Baud |
+| Controller | pygame-Joystick 0; Trigger-Achsen 2 / 5; Tasten A=0, B=1, X=2, Y=3, Start=7 |
+
+Welche GPIO-Pins hinter PWM-Kanal 0 und 1 liegen, legt das Device-Tree-Overlay
+des Pi fest und ergibt sich nicht aus dem Code.
+
+## Funktionsweise
+
+Threads: Ultraschall (Zieltakt 10 Hz), LIDAR (ein Durchlauf je Scan), Pose (50 Hz),
+LED (20 Hz). Der Steuerungs-Loop läuft im Hauptthread mit 50 Hz und gibt
+einmal pro Sekunde eine Statuszeile aus.
+
+**Kollisionsschutz** (`raspirobot/collision.py`, `raspirobot/drive.py`):
+
+- Ultraschall unter 30 cm oder LIDAR unter 0,30 m: beide Duty Cycles halbiert.
+- Ultraschall unter 15 cm oder LIDAR unter 0,15 m: beide Motoren auf 0.
+- Der LIDAR wird nur im Winkelbereich −45° bis +45° ausgewertet, roh wie vom
+  Sensor geliefert.
+
+**Odometrie** (`raspirobot/odometry.py`): Koppelnavigation aus den gesetzten
+Duty Cycles (keine Rad-Encoder). Annahme 100 % Duty = 0,5 m/s, Radabstand
+0,20 m. Die Pose wird beim Start einer Aufnahme auf (0, 0, 0) gesetzt.
+
+**Aufnahme** (`raspirobot/recorder.py`, `raspirobot/recording/`): Pro
+Steuerzyklus ein Controller-Sample (Trigger, Tasten, Richtung) und bis zu fünf
+gepufferte LIDAR-Scans `(quality, angle_deg, distance_mm)`. Die Datei ist
+gzip-komprimiertes JSON mit SHA256-Prüfsumme (Feld `_checksum`), Formatversion
+1.1.0. Laden:
+
+```python
+from raspirobot.recording.storage import PathRecordingStorageManager
+rec = PathRecordingStorageManager("path_recordings").load_json("path_recordings/<datei>.json.gz")
+```
+
+## Bekannte Einschränkungen (aus dem Code abgeleitet, bewusst nicht geändert)
+
+1. **LIDAR-Sektor:** Der RPLIDAR liefert Winkel von 0° bis 360°. Die Prüfung
+   `−45° ≤ Winkel ≤ 45°` erfasst daher nur 0° bis 45°; der Bereich 315° bis
+   360° wird nicht ausgewertet. Ob 0° zur Fahrzeugfront zeigt, hängt vom Einbau ab.
+2. **Die Pose wird nicht aufgezeichnet**, obwohl der Header
+   `pose_tracking: true` enthält. Für das Nachfahren eines Pfads fehlen damit
+   Positionsdaten in den Aufnahmen.
+3. **Odometrie beim Tank-Turn:** Die Richtungspins gehen nicht ein. Beim
+   Drehen auf der Stelle (beide Duty Cycles gleich) berechnet die Odometrie
+   eine Geradeausfahrt.
+4. **Ultraschall-Ausfall:** Ungültige Messungen behalten den letzten Wert; es
+   gibt keine Erkennung veralteter Werte.
+5. **Metadaten ohne Wirkung:** `deadzone: 0.05` und die LIDAR-Offsets
+   (`LIDAR_OFFSET_X = 0.15`) werden nur in den Header geschrieben, im Code
+   aber nirgends angewendet.
+6. Ein Strg+C führt das Aufräumen zweimal aus (Signal-Handler und `finally`);
+   dabei können Fehlermeldungen beim zweiten LIDAR-Stopp erscheinen.
+
+## Beispielaufnahmen
+
+`path_recordings/` enthält drei Aufnahmen vom 27.11.2025:
+
+| Datei | Erzeugt von | LIDAR | Controller-Samples | LIDAR-Frames |
+| :-- | :-- | :-- | --: | --: |
+| `20251127_203612_robot01.json.gz` | v3.0 | verbunden | 1913 | 171 |
+| `20251127_204615_robot01.json.gz` | v3.0.1 | nicht verbunden | 694 | 0 |
+| `20251127_204739_robot01.json.gz` | v3.0.1 | nicht verbunden | 1250 | 0 |
+
+## Tests
+
+Die Tests laufen ohne Raspberry Pi; `tests/fakes.py` ersetzt GPIO, PWM,
+pygame und rplidar.
 
 ```bash
-cd 3_Lidarmapper
-sudo python3 xbox_controller_with_recording_v3.0.2.py
+pip install -r requirements-dev.txt
+pytest tests/
 ```
 
-### 2. Offline-Simulator (In Entwicklung)
+## Struktur
 
-Spiele die aufgezeichneten `.json.gz`-Dateien am Entwicklungs-PC ab, um die Python-SLAM-Algorithmen ohne reale Roboter-Hardware zu trainieren und zu testen.
-
-```bash
-cd 5_simulation
-python3 data_player.py --record path_recordings/mein_datensatz.json.gz
 ```
-
-### 3. Autonome Navigation (Roadmap)
-
-Startet die Lokalisierung und fährt autonom zum definierten Ziel.
-
-```bash
-cd 6_autonomy
-python3 navigate.py --x 2.5 --y 1.0
+run_xbox_recording.py        Einstieg (root-Prüfung, startet RobotApp)
+raspirobot/
+  config.py                  alle Konstanten
+  app.py                     Setup, Threads, Steuerungs-Loop, Cleanup
+  drive.py                   Trigger → Duty Cycle, Tank-Turn, Kollisionsbegrenzung
+  collision.py               Bewertung Ultraschall + LIDAR
+  odometry.py                Pose aus Duty Cycles
+  recorder.py                Start/Stopp/Samples einer Aufnahme
+  recording/data_format.py   Datenklassen des Dateiformats
+  recording/storage.py       Speichern/Laden mit Prüfsumme und Backups
+  hardware/                  ultrasonic, motors, lidar, xbox_controller, status_led
+tests/                       pytest, ohne Hardware
 ```
-
-## 🗺️ Projekt-Roadmap
-
-Für eine detaillierte technische Übersicht der anstehenden Entwicklungsphasen (Offline-Simulator -> SLAM -> Lokalisierung -> Path Planning), siehe die [ANALYSE_UND_OPTIMIERUNG.md](ANALYSE_UND_OPTIMIERUNG.md).
-
-## 🔒 Sicherheitsfeatures & Robustheit
-
-* Hardware-Notaus über Controller.
-* "Graceful Degradation": Das System warnt bei abfallender LIDAR-Frequenz und stoppt bei Sensorverlust.
-* Dynamische Hindernisvermeidung durch gekoppelte Ultraschall/LIDAR-Kollisionszonen.
-
-## 🤝 Contributing & KI-Entwicklung
-
-Dieses Projekt wird maßgeblich durch die Zusammenarbeit mit fortschrittlichen KI-Coding-Agenten entwickelt. Fokus liegt auf sauberem, modularem Python-Code und algorithmischem Verständnis statt auf Blackbox-Frameworks.
-
-**Lizenz:** MIT License

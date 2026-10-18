@@ -205,3 +205,6 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Backups und Logs der Aufzeichnung
+path_recordings/backups/

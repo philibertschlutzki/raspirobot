@@ -204,6 +204,28 @@ Die Bibliothek schickt es beim Scan-Start, der C1 verschluckt dann die nächste
 Antwort und der Scan bricht mit `Descriptor length mismatch` ab. Abgebrochene
 Scans werden bis zu `LIDAR_MAX_RESTARTS` Mal neu gestartet.
 
+## Aufgezeichneten Weg auswerten
+
+```bash
+python -m raspirobot.path.analyze path_recordings/<session>_path.json.gz
+python -m raspirobot.path.analyze path_recordings/<session>_path.json.gz --cpu-faktor 4
+```
+
+Nur lesend, ohne Hardware, läuft auch auf einem anderen Rechner. Gibt aus:
+Pose-Quelle, Wegpunkt-Abstände und größte Lücken, ab Wegdatei Version 2 die
+SLAM-Wertung und den Abstand zur Odometrie je Wegpunkt. Aus der zugehörigen
+Aufnahme kommen LIDAR-Takt (Frame-Abstände, Punkte je Umlauf, daraus die
+Motordrehzahl) und eine Nachrechnung von Odometrie und SLAM mit
+Zeitverlauf, LOST-Phasen und Weglängen. `--cpu-faktor` bildet einen
+langsameren Rechner nach: Scans, die während des vorigen Scan-Matchings
+ankommen, fallen dann wie live weg.
+
+Seit Version 2 der Wegdatei steht an jedem Wegpunkt `status`, `score` und
+`odom_x/odom_y/odom_theta`. Zwischen zwei Scans wird die SLAM-Pose mit der
+Odometrie fortgeschrieben, damit Wegpunkte im Soll-Abstand entstehen statt
+nur einmal je Scan. Beim Abfahren füllt `densify` Lücken über 2 cm mit
+interpolierten Wegpunkten auf.
+
 ## Tests
 
 Die Tests laufen ohne Raspberry Pi; `tests/fakes.py` ersetzt GPIO, PWM,
@@ -236,5 +258,6 @@ raspirobot/
   path/teach.py              TeachApp: RobotApp plus Wegaufzeichnung
   path/follower.py           Regler (Pure Pursuit) und Abspielen der Eingaben
   path/follow_app.py         PathFollowApp: Abfahren mit Not-Aus und Abbruchbedingungen
+  path/analyze.py            Auswertung einer Wegaufzeichnung ohne Hardware
 tests/                       pytest, ohne Hardware
 ```

@@ -44,6 +44,10 @@ class LocalizationResult:
     matched: bool = False     # Pose stammt aus dem letzten Scan-Match, nicht nur aus der Odometrie
     n_points: int = 0
     scans_processed: int = 0
+    # Odometrie-Pose zum Zeitpunkt des Scans. Damit lässt sich die Pose bis zum
+    # nächsten Scan mit der Odometrie fortschreiben (siehe ``PoseSource``).
+    odom: Optional[Pose] = None
+    odom_epoch: int = -1
 
 
 class Localizer:
@@ -61,6 +65,7 @@ class Localizer:
         self._fail_count = 0
         self._scans = 0
 
+        self._odom_at_scan: Optional[Pose] = None
         self._result = LocalizationResult(0.0, 0.0, 0.0, time.time())
         self._result_lock = threading.Lock()
         self._cond = threading.Condition()
@@ -109,6 +114,7 @@ class Localizer:
         else:
             rel = relative(self._last_odom, odom_pose)
         self._last_odom, self._last_epoch = odom_pose, epoch
+        self._odom_at_scan = odom_pose
         prediction = compose(self._pose, rel)
 
         points = scan_to_points(scan)
@@ -190,6 +196,8 @@ class Localizer:
             matched=matched,
             n_points=n_points,
             scans_processed=self._scans,
+            odom=self._odom_at_scan,
+            odom_epoch=self._last_epoch if self._last_epoch is not None else -1,
         )
         with self._result_lock:
             self._result = result

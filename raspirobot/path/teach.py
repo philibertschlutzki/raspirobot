@@ -33,7 +33,8 @@ class PathRecorder(Recorder):
         if not super().start():
             return False
         # Nach dem Odometrie-Reset in ``super().start()``: Ursprung des Wegs festlegen.
-        source = self._pose_source.set_origin()
+        # Frische Karte ab Aufnahmestart; ohne LIDAR bzw. SLAM bleibt es bei der Odometrie.
+        source = self._pose_source.restart_slam() or self._pose_source.set_origin()
         self.sampler = WaypointSampler()
         self.path_file = None
         sample = self._pose_source.sample()

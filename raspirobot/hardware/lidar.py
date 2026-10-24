@@ -2,7 +2,7 @@
 
 import threading
 import time
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, List, Tuple
 
 from .. import config
 from ..log import logger

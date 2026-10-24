@@ -85,14 +85,17 @@ RECORDING_BASE_DIR = "path_recordings"  # relativ zum aktuellen Arbeitsverzeichn
 LIDAR_FRAME_BUFFER_SIZE = 100
 
 # Odometrie aus PWM-Werten (keine Rad-Encoder).
-WHEEL_BASE_M = 0.20
+# Wirksamer Radabstand für die Drehung. Gemessen ist der Abstand der Räder (0,20 m); die
+# Fahrt 20261024_144903 drehte beim Tank-Turn aber nur 0,46-mal so weit, wie das Modell mit
+# 0,20 m ergab (SLAM +177° gegen +388° im Modell), Raupen/Räder rutschen. 0,20 / 0,46 = 0,43.
+# Eine einzelne Drehung, mit einer Drehprobe (360°) prüfen.
+WHEEL_BASE_M = 0.43
 # Auf 100 % Duty hochgerechnete Geschwindigkeit. Die Referenz nahm 0,5 m/s an. Die Fahrt
 # 20261024_141249 legte real etwa 5,5 m geradeaus zurück; das Modell mit 0,5 m/s ergab für
 # die ganze Fahrt 2,39 m. Nachgerechnet mit 2,3 m/s liegt die SLAM-Spur bei 5,4 m Hinweg und
 # das Scan-Matching bleibt fast durchgehend OK (mit 0,5 m/s lag die Odometrie so weit
-# daneben, dass SLAM ab 22 s auf LOST fiel). Grobe Messung aus einer Fahrt; die Duty-Kennlinie
-# ist vermutlich nicht linear. Der Radabstand (WHEEL_BASE_M, Drehung) ist damit nicht
-# geprüft und braucht eine eigene Drehmessung.
+# daneben, dass SLAM ab 22 s auf LOST fiel). Die zweite Fahrt (8,15 m Odometrie gegen 8,66 m
+# SLAM) bestätigt den Wert auf etwa 6 %. Die Duty-Kennlinie ist vermutlich nicht linear.
 ODOMETRY_MAX_SPEED_M_S = 2.3
 
 # Shutdown
@@ -119,6 +122,7 @@ SLAM_PRIOR_PENALTY_PER_M = 0.05    # bevorzugt bei Gleichstand die Vorhersage
 SLAM_PRIOR_PENALTY_PER_RAD = 0.05
 SLAM_AMBIGUITY_MARGIN = 0.10       # ein ≥ 2 Schritte entfernter Treffer, der höchstens so viel schlechter ist, macht den Match mehrdeutig
 SLAM_LOST_AFTER = 5                # aufeinanderfolgende Fehlmatches bis Status LOST
+SLAM_RESTART_TIMEOUT_SEC = 3.0     # neue Karte (Aufnahmestart) wartet so lange auf den ersten Scan, dann Odometrie
 SLAM_MAP_REBUILD_EVERY = 25        # Scans zwischen vollständigen Neuberechnungen des Likelihood-Felds
 
 # Weg aufzeichnen und abfahren (``raspirobot/path``). Die Duty-Werte sind

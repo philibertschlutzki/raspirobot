@@ -86,8 +86,14 @@ LIDAR_FRAME_BUFFER_SIZE = 100
 
 # Odometrie aus PWM-Werten (keine Rad-Encoder).
 WHEEL_BASE_M = 0.20
-# Annahme der Referenz: 100 % Duty Cycle entspricht 0,5 m/s. Nicht gemessen.
-ODOMETRY_MAX_SPEED_M_S = 0.5
+# Auf 100 % Duty hochgerechnete Geschwindigkeit. Die Referenz nahm 0,5 m/s an. Die Fahrt
+# 20261024_141249 legte real etwa 5,5 m geradeaus zurück; das Modell mit 0,5 m/s ergab für
+# die ganze Fahrt 2,39 m. Nachgerechnet mit 2,3 m/s liegt die SLAM-Spur bei 5,4 m Hinweg und
+# das Scan-Matching bleibt fast durchgehend OK (mit 0,5 m/s lag die Odometrie so weit
+# daneben, dass SLAM ab 22 s auf LOST fiel). Grobe Messung aus einer Fahrt; die Duty-Kennlinie
+# ist vermutlich nicht linear. Der Radabstand (WHEEL_BASE_M, Drehung) ist damit nicht
+# geprüft und braucht eine eigene Drehmessung.
+ODOMETRY_MAX_SPEED_M_S = 2.3
 
 # Shutdown
 THREAD_SHUTDOWN_TIMEOUT_SEC = 3.0

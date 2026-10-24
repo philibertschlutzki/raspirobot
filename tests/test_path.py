@@ -68,7 +68,7 @@ def test_signed_odometry_turns_in_place_on_tank_turn():
     tracker.step(1.0)
     pose = tracker.get_pose()
     assert abs(pose.x) < 1e-9 and abs(pose.y) < 1e-9
-    assert math.isclose(pose.theta, 0.5)
+    assert math.isclose(pose.theta, 2 * 0.1 * config.ODOMETRY_MAX_SPEED_M_S / config.WHEEL_BASE_M)
 
 
 def test_default_odometry_unchanged_on_tank_turn():
@@ -76,7 +76,7 @@ def test_default_odometry_unchanged_on_tank_turn():
     tracker.set_wheel_directions(True, False)
     tracker.set_duty(10.0, 10.0)
     tracker.step(1.0)
-    assert math.isclose(tracker.get_pose().x, 0.05)
+    assert math.isclose(tracker.get_pose().x, 0.1 * config.ODOMETRY_MAX_SPEED_M_S)
 
 
 # --------------------------------------------------------------- Wegpunkte
@@ -223,7 +223,7 @@ def test_teach_app_writes_path_with_recording(tmp_path, monkeypatch):
     state = ControllerInput(trigger_left=1.0, trigger_right=1.0)
     app.pose.set_duty(10.0, 10.0)
     for _ in range(50):
-        app.pose.step(0.02)                      # 0,05 m/s
+        app.pose.step(0.02)                      # 0,1 x ODOMETRY_MAX_SPEED_M_S
         app.recorder.add_sample(state)
     app.recorder.start_time -= config.MIN_RECORDING_DURATION_SEC
     assert app.recorder.stop()
@@ -232,7 +232,7 @@ def test_teach_app_writes_path_with_recording(tmp_path, monkeypatch):
     path = load_path(app.recorder.path_file)
     assert path.pose_source == SOURCE_ODOM
     assert path.waypoints[0].x == 0.0
-    assert math.isclose(path.waypoints[-1].x, 0.05, abs_tol=1e-3)
+    assert math.isclose(path.waypoints[-1].x, 0.1 * config.ODOMETRY_MAX_SPEED_M_S, abs_tol=1e-3)
     assert len(path.waypoints) >= 3
 
 

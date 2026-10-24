@@ -86,7 +86,7 @@ Controller-Eingaben zeitgetreu ab, ohne Positionsregelung. Das geht auch mit
 älteren Aufnahmen ohne Wegdatei, driftet aber ohne Korrektur.
 
 Ohne Rad-Encoder hängt die Genauigkeit an der Odometrie und am Scan-Matching.
-Die Annahme 100 % Duty = 0,5 m/s ist nicht gemessen; weil Aufzeichnen und
+Die Annahme 100 % Duty = 2,3 m/s stammt aus einer einzigen Fahrt (real etwa 5,5 m geradeaus, SLAM-Nachrechnung 5,4 m, altes Modell mit 0,5 m/s nur 2,39 m für die ganze Fahrt); weil Aufzeichnen und
 Abfahren dasselbe Modell nutzen, hebt sich ein konstanter Skalenfehler
 weitgehend auf, ein Totbereich der Motoren bei kleinem Duty Cycle nicht.
 Beim Abfahren baut SLAM eine neue Karte ab dem Startpunkt auf; die Karte der
@@ -124,7 +124,7 @@ einmal pro Sekunde eine Statuszeile aus.
   Sensor geliefert.
 
 **Odometrie** (`raspirobot/odometry.py`): Koppelnavigation aus den gesetzten
-Duty Cycles (keine Rad-Encoder). Annahme 100 % Duty = 0,5 m/s, Radabstand
+Duty Cycles (keine Rad-Encoder). Annahme 100 % Duty = 2,3 m/s (aus einer Messfahrt, siehe `config.py`), Radabstand
 0,20 m. Die Pose wird beim Start einer Aufnahme auf (0, 0, 0) gesetzt.
 
 **Positionsbestimmung** (`raspirobot/localization/`): Die Odometrie liefert die

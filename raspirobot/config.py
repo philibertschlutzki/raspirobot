@@ -114,3 +114,23 @@ SLAM_PRIOR_PENALTY_PER_RAD = 0.05
 SLAM_AMBIGUITY_MARGIN = 0.10       # ein ≥ 2 Schritte entfernter Treffer, der höchstens so viel schlechter ist, macht den Match mehrdeutig
 SLAM_LOST_AFTER = 5                # aufeinanderfolgende Fehlmatches bis Status LOST
 SLAM_MAP_REBUILD_EVERY = 25        # Scans zwischen vollständigen Neuberechnungen des Likelihood-Felds
+
+# Weg aufzeichnen und abfahren (``raspirobot/path``). Die Duty-Werte sind
+# Prozent wie MAX_DUTY_CYCLE und nicht auf dem Roboter erprobt.
+PATH_WAYPOINT_SPACING_M = 0.02      # neuer Wegpunkt ab dieser Strecke ...
+PATH_WAYPOINT_ANGLE_RAD = 0.087     # ... oder ab dieser Drehung (5°)
+FOLLOW_DUTY = 9.0                   # Duty Cycle bei Geradeausfahrt
+FOLLOW_TURN_DUTY = 9.0              # Duty Cycle beider Räder beim Drehen auf der Stelle
+FOLLOW_LOOKAHEAD_M = 0.25           # Abstand des Zielpunkts auf dem Weg (Pure Pursuit)
+FOLLOW_SEARCH_AHEAD_M = 0.50        # so weit voraus wird der nächstgelegene Wegpunkt gesucht
+FOLLOW_TURN_IN_PLACE_RAD = 0.70     # Richtungsfehler (40°), ab dem auf der Stelle gedreht wird
+FOLLOW_TURN_DONE_RAD = 0.15         # bis auf diesen Fehler wird auf der Stelle gedreht
+FOLLOW_GOAL_TOLERANCE_M = 0.05      # Abstand zum letzten Wegpunkt, ab dem das Ziel erreicht ist
+FOLLOW_FINAL_HEADING_TOLERANCE_RAD = 0.15
+FOLLOW_ALIGN_FINAL_HEADING = True   # am Ziel auf die aufgezeichnete Endausrichtung drehen
+FOLLOW_MAX_DEVIATION_M = 0.50       # weiter vom Weg entfernt: Abbruch
+FOLLOW_NO_PROGRESS_TIMEOUT_SEC = 20.0
+FOLLOW_OBSTACLE_TIMEOUT_SEC = 15.0  # so lange wird vor einem Hindernis gewartet, dann Abbruch
+FOLLOW_POSE_LOST_TIMEOUT_SEC = 10.0  # so lange darf die SLAM-Pose LOST oder veraltet sein
+FOLLOW_POSE_MAX_AGE_SEC = 1.0       # ältere SLAM-Pose gilt als veraltet, Motoren stehen
+FOLLOW_ABORT_TRIGGER = 0.0          # Trigger über diesem Rohwert (-1..1) während der Fahrt: Not-Aus

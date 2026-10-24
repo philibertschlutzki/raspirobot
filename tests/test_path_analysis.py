@@ -224,3 +224,24 @@ def test_pose_source_restart_slam_falls_back_to_odometry_without_scan():
 
     no_lidar = PoseSource(lambda: odom, loc, slam_available=lambda: False)
     assert no_lidar.restart_slam() is None
+
+
+# ------------------------------------------------------------------ refine
+
+
+def test_refine_builds_dense_slam_path_from_recording(tmp_path):
+    from raspirobot.path import refine
+    from raspirobot.recording.storage import PathRecordingStorageManager
+
+    data, speed = _synthetic_recording(seconds=4.0)
+    PathRecordingStorageManager(str(tmp_path), backup_enabled=False).save_json(data, "s1")
+    target = refine.refine_file(tmp_path / "s1.json.gz")
+    assert target.name == "s1_refined_path.json.gz"
+
+    path = load_path(target)
+    assert path.pose_source == SOURCE_SLAM and path.recording_file == "s1.json.gz"
+    gaps = [math.hypot(b.x - a.x, b.y - a.y) for a, b in zip(path.waypoints, path.waypoints[1:])]
+    assert max(gaps) < 3 * config.PATH_WAYPOINT_SPACING_M
+    assert math.isclose(path.length_m(), speed * 4.0, rel_tol=0.05)
+    assert not any(w.backward for w in path.waypoints)
+    assert {w.status for w in path.waypoints[2:]} <= {"OK", "INIT"} and path.waypoints[-1].status == "OK"

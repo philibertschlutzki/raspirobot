@@ -90,13 +90,11 @@ LIDAR_FRAME_BUFFER_SIZE = 100
 # 0,20 m ergab (SLAM +177° gegen +388° im Modell), Raupen/Räder rutschen. 0,20 / 0,46 = 0,43.
 # Eine einzelne Drehung, mit einer Drehprobe (360°) prüfen.
 WHEEL_BASE_M = 0.43
-# Auf 100 % Duty hochgerechnete Geschwindigkeit. Die Referenz nahm 0,5 m/s an. Die Fahrt
-# 20261024_141249 legte real etwa 5,5 m geradeaus zurück; das Modell mit 0,5 m/s ergab für
-# die ganze Fahrt 2,39 m. Nachgerechnet mit 2,3 m/s liegt die SLAM-Spur bei 5,4 m Hinweg und
-# das Scan-Matching bleibt fast durchgehend OK (mit 0,5 m/s lag die Odometrie so weit
-# daneben, dass SLAM ab 22 s auf LOST fiel). Die zweite Fahrt (8,15 m Odometrie gegen 8,66 m
-# SLAM) bestätigt den Wert auf etwa 6 %. Die Duty-Kennlinie ist vermutlich nicht linear.
-ODOMETRY_MAX_SPEED_M_S = 2.3
+# Auf 100 % Duty hochgerechnete Geschwindigkeit. Die Referenz nahm 0,5 m/s an; gemessen an
+# Geradeausfahrten mit beiden Triggern voll (12 % Duty): 0,24 m/s laut SLAM, also etwa
+# 2,0 m/s bei 100 % (erste Fahrt mit dem alten Wert 0,5: 2,39 m statt real etwa 5,5 m).
+# Die Duty-Kennlinie ist vermutlich nicht linear; bei kleinerem Duty ist der Wert ungeprüft.
+ODOMETRY_MAX_SPEED_M_S = 2.0
 
 # Shutdown
 THREAD_SHUTDOWN_TIMEOUT_SEC = 3.0

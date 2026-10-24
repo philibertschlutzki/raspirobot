@@ -86,7 +86,7 @@ Controller-Eingaben zeitgetreu ab, ohne Positionsregelung. Das geht auch mit
 älteren Aufnahmen ohne Wegdatei, driftet aber ohne Korrektur.
 
 Ohne Rad-Encoder hängt die Genauigkeit an der Odometrie und am Scan-Matching.
-Die Annahme 100 % Duty = 2,3 m/s stammt aus einer einzigen Fahrt (real etwa 5,5 m geradeaus, SLAM-Nachrechnung 5,4 m, altes Modell mit 0,5 m/s nur 2,39 m für die ganze Fahrt); weil Aufzeichnen und
+Die Annahme 100 % Duty = 2,0 m/s stammt aus Geradeausfahrten mit vollen Triggern (0,24 m/s laut SLAM); weil Aufzeichnen und
 Abfahren dasselbe Modell nutzen, hebt sich ein konstanter Skalenfehler
 weitgehend auf, ein Totbereich der Motoren bei kleinem Duty Cycle nicht.
 Beim Abfahren baut SLAM eine neue Karte ab dem Startpunkt auf; die Karte der
@@ -124,7 +124,7 @@ einmal pro Sekunde eine Statuszeile aus.
   Sensor geliefert.
 
 **Odometrie** (`raspirobot/odometry.py`): Koppelnavigation aus den gesetzten
-Duty Cycles (keine Rad-Encoder). Annahme 100 % Duty = 2,3 m/s (aus einer Messfahrt, siehe `config.py`), Radabstand
+Duty Cycles (keine Rad-Encoder). Annahme 100 % Duty = 2,0 m/s (aus Messfahrten, siehe `config.py`), Radabstand
 0,20 m. Die Pose wird beim Start einer Aufnahme auf (0, 0, 0) gesetzt.
 
 **Positionsbestimmung** (`raspirobot/localization/`): Die Odometrie liefert die
@@ -220,6 +220,13 @@ Zeitverlauf, LOST-Phasen und Weglängen. `--cpu-faktor` bildet einen
 langsameren Rechner nach: Scans, die während des vorigen Scan-Matchings
 ankommen, fallen dann wie live weg.
 
+**Weg nachträglich berechnen:** Live verarbeitet der Pi nur so viele LIDAR-Scans,
+wie er schafft, und verliert bei Aussetzern des Sensors (Neustart des Scans, bis
+zu 2,5 s) die Position. `python -m raspirobot.path.refine path_recordings/<session>.json.gz`
+rechnet den Weg aus der Aufnahme noch einmal mit allen Scans und schreibt
+`<session>_refined_path.json.gz`. `run_path_follow.py` nimmt ohne Dateiangabe die
+neueste `*_path.json.gz` und findet sie damit; mit `python -m raspirobot.path.analyze` prüfen.
+
 Seit Version 2 der Wegdatei steht an jedem Wegpunkt `status`, `score` und
 `odom_x/odom_y/odom_theta`. Zwischen zwei Scans wird die SLAM-Pose mit der
 Odometrie fortgeschrieben, damit Wegpunkte im Soll-Abstand entstehen statt
@@ -259,5 +266,6 @@ raspirobot/
   path/follower.py           Regler (Pure Pursuit) und Abspielen der Eingaben
   path/follow_app.py         PathFollowApp: Abfahren mit Not-Aus und Abbruchbedingungen
   path/analyze.py            Auswertung einer Wegaufzeichnung ohne Hardware
+  path/refine.py             Weg nachträglich aus der Aufnahme berechnen
 tests/                       pytest, ohne Hardware
 ```

@@ -12,6 +12,8 @@ dauerhafte Hindernisse, verlorene Pose, zu große Abweichung vom Weg oder
 fehlender Fortschritt brechen ab. Beim Beenden stehen die Motoren.
 """
 
+import gzip
+import json
 import math
 import time
 from pathlib import Path
@@ -59,6 +61,8 @@ class PathFollowApp(RobotApp):
         self._pose_bad_since: Optional[float] = None
         self._best_progress = 0.0
         self._progress_time = 0.0
+        self._trace: list = []
+        self._trace_time = 0.0
 
     # ----------------------------------------------------------------- Laden
 
@@ -88,7 +92,42 @@ class PathFollowApp(RobotApp):
         self.pose.set_duty(0.0, 0.0)
         self.motors.set_duty(0.0, 0.0)
 
+    def _record_trace(self, now: float, cmd, left: float, right: float) -> None:
+        """Alle 0,1 s ein Eintrag; ``_write_trace`` speichert sie beim Beenden zur Auswertung."""
+        if now - self._trace_time < 0.1 or self.mode != MODE_PATH:
+            return
+        self._trace_time = now
+        sample = self.pose_source.sample()
+        s = self.last_step
+        self._trace.append({
+            "t": round(now - self._start_time, 3),
+            "x": round(sample.pose[0], 4), "y": round(sample.pose[1], 4), "theta": round(sample.pose[2], 4),
+            "status": sample.status, "age": round(sample.age, 2),
+            "score": None if sample.score is None else round(sample.score, 3),
+            "odom": [round(v, 4) for v in sample.odom],
+            "phase": s.phase if s else "", "index": s.index if s else -1, "target": s.target_index if s else -1,
+            "deviation": round(s.deviation_m, 3) if s else None,
+            "heading_error": round(s.heading_error, 3) if s else None,
+            "cmd": [cmd.left_backward, cmd.right_backward, round(cmd.left_duty, 2), round(cmd.right_duty, 2)],
+            "duty": [round(left, 2), round(right, 2)],
+        })
+
+    def _write_trace(self, message: str) -> None:
+        if not self._trace:
+            return
+        name = f"{self.filepath.name.split('.')[0]}_follow_{time.strftime('%Y%m%d_%H%M%S')}.json.gz"
+        target = Path(config.RECORDING_BASE_DIR) / name
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            data = {"format": "raspirobot-follow-trace", "version": 1, "path_file": self.filepath.name,
+                    "result": message, "source": self.pose_source.source, "trace": self._trace}
+            target.write_bytes(gzip.compress(json.dumps(data).encode("utf-8")))
+            print(f"[FOLLOW] 📝 Fahrprotokoll: {target}")
+        except Exception as e:
+            logger.error(f"Fahrprotokoll nicht gespeichert: {e}")
+
     def _finish(self, state: str, message: str) -> None:
+        self._write_trace(message)
         self._stop_motors()
         self.state = state
         self.result = message
@@ -222,6 +261,7 @@ class PathFollowApp(RobotApp):
         left, right = limit_for_collision(cmd.left_duty, cmd.right_duty, collision)
         self.pose.set_duty(left, right)
         self.motors.set_duty(left, right)
+        self._record_trace(now, cmd, left, right)
         return cmd.left_duty, cmd.right_duty
 
     # --------------------------------------------------------------- Ausgabe

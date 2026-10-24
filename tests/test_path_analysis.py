@@ -245,3 +245,35 @@ def test_refine_builds_dense_slam_path_from_recording(tmp_path):
     assert math.isclose(path.length_m(), speed * 4.0, rel_tol=0.05)
     assert not any(w.backward for w in path.waypoints)
     assert {w.status for w in path.waypoints[2:]} <= {"OK", "INIT"} and path.waypoints[-1].status == "OK"
+
+
+# ------------------------------------------------- Fahrprotokoll, Rechenlast
+
+
+def test_follow_app_writes_trace_on_finish(tmp_path, monkeypatch):
+    from tests.test_path import l_path, make_follow_app, simulate
+
+    monkeypatch.setattr(config, "RECORDING_BASE_DIR", str(tmp_path / "out"))
+    app = make_follow_app(tmp_path, l_path())
+    app.controller.joystick.buttons[config.BUTTON_A] = 1
+    simulate(app, 20)
+    app._trace_time = 0.0
+    cmd = app.last_step.command
+    app._record_trace(app._start_time + 5.0, cmd, 9.0, 9.0)
+    app.abort("Test")
+    files = list((tmp_path / "out").glob("*_follow_*.json.gz"))
+    assert len(files) == 1
+    data = json.loads(gzip.decompress(files[0].read_bytes()))
+    assert data["result"] == "Test" and data["format"] == "raspirobot-follow-trace"
+    row = data["trace"][0]
+    assert row["phase"] and row["duty"] == [9.0, 9.0]
+    assert row["cmd"][2:] == [round(cmd.left_duty, 2), round(cmd.right_duty, 2)]
+
+
+def test_localizer_stats_count_skipped_scans():
+    loc = Localizer(lambda: FakeOdom(0.0, 0.0, 0.0))
+    scan = simulate_scan(room(), (0.0, 0.0, 0.0))
+    loc.offer_scan(time.time(), scan)
+    loc.offer_scan(time.time(), scan)          # ersetzt den ersten, bevor der Worker ihn holt
+    s = loc.stats()
+    assert s["offered"] == 2 and s["skipped"] == 1 and s["processed"] == 0

@@ -120,6 +120,7 @@ SLAM_PRIOR_PENALTY_PER_M = 0.05    # bevorzugt bei Gleichstand die Vorhersage
 SLAM_PRIOR_PENALTY_PER_RAD = 0.05
 SLAM_AMBIGUITY_MARGIN = 0.10       # ein ≥ 2 Schritte entfernter Treffer, der höchstens so viel schlechter ist, macht den Match mehrdeutig
 SLAM_LOST_AFTER = 5                # aufeinanderfolgende Fehlmatches bis Status LOST
+SLAM_SLOW_SCAN_SEC = 0.15           # Scan-Matching, das länger dauert, zählt in der Laststatistik als langsam
 SLAM_RESTART_TIMEOUT_SEC = 3.0     # neue Karte (Aufnahmestart) wartet so lange auf den ersten Scan, dann Odometrie
 SLAM_MAP_REBUILD_EVERY = 25        # Scans zwischen vollständigen Neuberechnungen des Likelihood-Felds
 

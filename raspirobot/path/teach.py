@@ -36,7 +36,8 @@ class PathRecorder(Recorder):
         source = self._pose_source.set_origin()
         self.sampler = WaypointSampler()
         self.path_file = None
-        self.sampler.add(0.0, self._pose_source.get()[0], backward=False, force=True)
+        sample = self._pose_source.sample()
+        self.sampler.add(0.0, sample.pose, backward=False, force=True, sample=sample)
         print(f"[PATH] 📍 Wegaufzeichnung gestartet (Pose-Quelle: {source.upper()})")
         return True
 
@@ -44,17 +45,18 @@ class PathRecorder(Recorder):
         super().add_sample(controller)
         if not self.active:
             return
-        pose = self._pose_source.get()[0]
+        sample = self._pose_source.sample()
         backward = not controller.is_moving_forward and not controller.a_pressed
-        self.sampler.add(time.time() - self.start_time, pose, backward)
+        self.sampler.add(time.time() - self.start_time, sample.pose, backward, sample=sample)
 
     def stop(self, force_save: bool = False) -> bool:
         was_active = self.active
         if was_active:
             # Endpose immer übernehmen, auch wenn sie unter dem Mindestabstand liegt.
-            self.sampler.add(time.time() - self.start_time, self._pose_source.get()[0],
+            sample = self._pose_source.sample()
+            self.sampler.add(time.time() - self.start_time, sample.pose,
                              backward=self.sampler.waypoints[-1].backward if self.sampler.waypoints else False,
-                             force=True)
+                             force=True, sample=sample)
         saved = super().stop(force_save=force_save)
         if was_active and saved:
             self._save_path()

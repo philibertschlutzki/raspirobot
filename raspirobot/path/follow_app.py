@@ -25,7 +25,7 @@ from ..drive import limit_for_collision
 from ..log import logger
 from ..recording.storage import PathRecordingStorageManager
 from .follower import PHASE_DONE, STOP, InputReplayer, PathFollower
-from .waypoints import SOURCE_SLAM, PoseSource, load_path
+from .waypoints import SOURCE_SLAM, PoseSource, densify, load_path
 
 MODE_PATH = "weg"
 MODE_INPUTS = "eingaben"
@@ -65,7 +65,9 @@ class PathFollowApp(RobotApp):
     def load(self) -> None:
         if self.mode == MODE_PATH:
             path = load_path(self.filepath)
-            self.follower = PathFollower(path.waypoints)
+            # Lücken (z. B. aus SLAM-Sprüngen) auffüllen, damit die Suche nach dem
+            # nächstgelegenen Wegpunkt nicht an groben Abständen hängt.
+            self.follower = PathFollower(densify(path.waypoints))
             self.recorded_source = path.pose_source
             print(f"[FOLLOW] Weg geladen: {self.filepath} ({len(path.waypoints)} Wegpunkte, "
                   f"{path.length_m():.2f} m, aufgezeichnet mit {path.pose_source.upper()})")

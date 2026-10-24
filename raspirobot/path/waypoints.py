@@ -199,6 +199,7 @@ class PoseSource:
         self._origin: Pose = (0.0, 0.0, 0.0)
         self._odom_origin: Pose = (0.0, 0.0, 0.0)
         self._odom_origin_epoch = 0
+        self._pending_since: Optional[float] = None   # wartet nach ``restart_slam`` auf den ersten Scan
 
     def slam_ready(self) -> bool:
         return (
@@ -222,6 +223,7 @@ class PoseSource:
         return odom_pose, "ODOM", time.time(), None
 
     def set_origin(self) -> str:
+        self._pending_since = None
         self.source = SOURCE_SLAM if self.slam_ready() else SOURCE_ODOM
         odom = self._odom_getter()
         self._origin = self._absolute(odom)[0]
@@ -229,8 +231,48 @@ class PoseSource:
         self._odom_origin_epoch = getattr(odom, "epoch", 0)
         return self.source
 
+    def restart_slam(self, timeout: float = config.SLAM_RESTART_TIMEOUT_SEC) -> Optional[str]:
+        """Beginnt eine neue SLAM-Karte; der Ursprung liegt an der Pose des ersten Scans.
+
+        So startet ein Weg nicht in einer Karte, die vorher beim Herumfahren
+        entstanden (und womöglich verloren) ist. Blockiert nicht: Bis der erste
+        Scan verarbeitet ist, meldet ``sample`` die Pose (0, 0, 0) mit Status
+        ``INIT``. Kommt nach ``timeout`` Sekunden kein Scan, wird auf die
+        Odometrie ausgewichen. Gibt None zurück, wenn SLAM nicht verfügbar ist
+        (dann ``set_origin`` nutzen).
+        """
+        if self._localizer is None or not hasattr(self._localizer, "reset") or not self._slam_available():
+            return None
+        self._localizer.reset()
+        self.source = SOURCE_SLAM
+        self._pending_since = time.time()
+        self._pending_timeout = timeout
+        odom = self._odom_getter()
+        self._odom_origin = (odom.x, odom.y, odom.theta)
+        self._odom_origin_epoch = getattr(odom, "epoch", 0)
+        self._origin = (0.0, 0.0, 0.0)
+        return self.source
+
+    def _resolve_pending(self, odom) -> bool:
+        """True, solange noch auf den ersten Scan gewartet wird."""
+        if self._pending_since is None:
+            return False
+        if self._localizer.get_pose().status != STATUS_INIT:
+            self._pending_since = None
+            self._origin = self._absolute(odom)[0]
+            return False
+        if time.time() - self._pending_since > self._pending_timeout:
+            self._pending_since = None
+            self.source = SOURCE_ODOM
+            self._origin = (odom.x, odom.y, odom.theta)
+            return False
+        return True
+
     def sample(self) -> PoseSample:
         odom = self._odom_getter()
+        if self._resolve_pending(odom):
+            return PoseSample((0.0, 0.0, 0.0), STATUS_INIT, 0.0, None,
+                              relative(self._odom_origin, (odom.x, odom.y, odom.theta)))
         pose, status, timestamp, score = self._absolute(odom)
         odom_pose = (odom.x, odom.y, odom.theta)
         if getattr(odom, "epoch", 0) != self._odom_origin_epoch:

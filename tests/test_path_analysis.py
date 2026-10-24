@@ -173,3 +173,54 @@ def test_main_reads_files(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "2 Wegpunkte" in out and "Abstand SLAM ↔ Odometrie: am Ende 0.02 m" in out
     assert "SLAM nachgerechnet" in out
+
+
+# ------------------------------------------------- Neue Karte ab Aufnahmestart
+
+
+def test_localizer_reset_starts_a_fresh_map():
+    segs = room()
+    loc = Localizer(lambda: FakeOdom(0.0, 0.0, 0.0))
+    scan = simulate_scan(segs, (0.0, 0.0, 0.0))
+    loc.process(time.time(), scan, FakeOdom(0.0, 0.0, 0.0))
+    assert loc.get_pose().status == STATUS_OK and loc.grid.scans_integrated == 1
+
+    loc.reset()
+    assert loc.get_pose().status == "INIT"
+    res = loc.process(time.time(), scan, FakeOdom(5.0, 5.0, 1.0))   # Odometrie lief weiter, Karte beginnt neu
+    assert res.status == STATUS_OK and (res.x, res.y, res.theta) == (0.0, 0.0, 0.0)
+    assert loc.grid.scans_integrated == 1
+
+
+def test_pose_source_restart_slam_waits_for_first_scan_then_uses_it():
+    segs = room()
+    odom = FakeOdom(3.0, 0.0, 0.0)
+    loc = Localizer(lambda: odom)
+    scan = simulate_scan(segs, (0.0, 0.0, 0.0))
+    loc.process(time.time(), scan, odom)                        # alte Karte, Roboter ist inzwischen weitergefahren
+    src = PoseSource(lambda: odom, loc, slam_available=lambda: True)
+
+    assert src.restart_slam() == SOURCE_SLAM
+    s = src.sample()
+    assert s.status == "INIT" and s.pose == (0.0, 0.0, 0.0)     # wartet auf den ersten Scan, blockiert nicht
+    loc.process(time.time(), scan, odom)
+    s = src.sample()
+    assert s.status == STATUS_OK and s.pose == (0.0, 0.0, 0.0)  # Ursprung = Pose des ersten Scans
+    odom.x = 3.1
+    assert math.isclose(src.sample().pose[0], 0.1, abs_tol=1e-6)   # Odometrie schreibt fort
+
+
+def test_pose_source_restart_slam_falls_back_to_odometry_without_scan():
+    odom = FakeOdom(1.0, 0.0, 0.0)
+    loc = Localizer(lambda: odom)
+    src = PoseSource(lambda: odom, loc, slam_available=lambda: True)
+    assert src.restart_slam(timeout=0.0) == SOURCE_SLAM
+    time.sleep(0.01)
+    odom.x = 1.2
+    s = src.sample()
+    assert src.source == "odom" and s.status == "ODOM" and s.pose[0] == 0.0
+    odom.x = 1.5
+    assert math.isclose(src.sample().pose[0], 0.3)
+
+    no_lidar = PoseSource(lambda: odom, loc, slam_available=lambda: False)
+    assert no_lidar.restart_slam() is None

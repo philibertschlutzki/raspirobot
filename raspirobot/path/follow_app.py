@@ -105,7 +105,10 @@ class PathFollowApp(RobotApp):
             if self.recorded_source == SOURCE_SLAM and not self.pose_source.slam_ready():
                 print("[FOLLOW] ⏳ SLAM noch nicht bereit (LIDAR prüfen) - A erneut drücken")
                 return False
-            source = self.pose_source.set_origin()
+            source = None
+            if self.recorded_source == SOURCE_SLAM:
+                source = self.pose_source.restart_slam()  # frische Karte wie beim Aufzeichnen
+            source = source or self.pose_source.set_origin()
             if source != self.recorded_source:
                 print(f"[FOLLOW] ⚠️ Aufgezeichnet mit {self.recorded_source.upper()}, "
                       f"abgefahren mit {source.upper()}")

@@ -66,6 +66,8 @@ class Localizer:
         self._scans = 0
 
         self._odom_at_scan: Optional[Pose] = None
+        self._generation = 0          # reset() zählt hoch
+        self._applied_generation = 0
         self._result = LocalizationResult(0.0, 0.0, 0.0, time.time())
         self._result_lock = threading.Lock()
         self._cond = threading.Condition()
@@ -100,6 +102,32 @@ class Localizer:
                 logger.error(f"Positionsbestimmung Fehler: {e}")
         print("[THREAD] Localization Thread beendet")
 
+    def reset(self) -> None:
+        """Verwirft Karte und Pose; der nächste Scan beginnt neu bei (0, 0, 0).
+
+        Blockiert nicht: Die Pose steht sofort wieder auf ``INIT``, die Karte wird
+        vom Localization-Thread vor dem nächsten Scan neu angelegt. Ein gerade
+        laufender Scan veröffentlicht sein Ergebnis nicht mehr.
+        """
+        with self._cond:
+            self._generation += 1
+            self._pending = None
+        with self._result_lock:
+            self._result = LocalizationResult(0.0, 0.0, 0.0, time.time())
+
+    def _apply_reset(self) -> None:
+        self.grid = OccupancyMap()
+        self.matcher = ScanMatcher(self.grid)
+        self._pose = (0.0, 0.0, 0.0)
+        self._last_odom = None
+        self._last_epoch = None
+        self._initialized = False
+        self._status = STATUS_INIT
+        self._fail_count = 0
+        self._scans = 0
+        self._odom_at_scan = None
+        self._applied_generation = self._generation
+
     def save_map(self, base_path: str):
         return self.grid.save(base_path)
 
@@ -107,6 +135,9 @@ class Localizer:
 
     def process(self, timestamp: float, scan: Iterable, odom) -> LocalizationResult:
         """Verarbeitet einen Scan synchron und veröffentlicht die neue Pose."""
+        generation = self._generation
+        if generation != self._applied_generation:
+            self._apply_reset()
         odom_pose: Pose = (float(odom.x), float(odom.y), float(odom.theta))
         epoch = getattr(odom, "epoch", 0)
         if self._last_odom is None or epoch != self._last_epoch:
@@ -134,6 +165,8 @@ class Localizer:
         else:
             score, matched = self._localize(points, prediction)
 
+        if generation != self._generation:
+            return self.get_pose()  # während der Verarbeitung zurückgesetzt: Ergebnis verwerfen
         return self._publish(timestamp, score, matched, points.shape[0])
 
     def _localize(self, points, prediction: Pose) -> Tuple[float, bool]:

@@ -280,7 +280,20 @@ class RobotApp:
         logger.info("System heruntergefahren")
         print("[CLEANUP] ✅ Cleanup abgeschlossen")
 
+    def _log_localizer_stats(self) -> None:
+        if not self.localizer:
+            return
+        s = self.localizer.stats()
+        if s["offered"] == 0:
+            return
+        text = (f"Scan-Matching: {s['processed']} von {s['offered']} Scans verarbeitet, {s['skipped']} übersprungen, "
+                f"Rechenzeit Ø {s['mean_s'] * 1000:.0f} ms, max {s['max_s'] * 1000:.0f} ms, {s['slow']} über "
+                f"{config.SLAM_SLOW_SCAN_SEC * 1000:.0f} ms")
+        print(f"[CLEANUP] 📊 {text}")
+        logger.info(text)
+
     def _save_map(self) -> None:
+        self._log_localizer_stats()
         if not self.localizer or self.localizer.grid.scans_integrated == 0:
             return
         base = Path(config.RECORDING_BASE_DIR) / "maps" / time.strftime("map_%Y%m%d_%H%M%S")

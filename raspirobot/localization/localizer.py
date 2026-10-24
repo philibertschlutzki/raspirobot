@@ -66,6 +66,11 @@ class Localizer:
         self._scans = 0
 
         self._odom_at_scan: Optional[Pose] = None
+        self._offered = 0             # Statistik für ``stats()``: angebotene, ersetzte und verarbeitete Scans
+        self._replaced = 0
+        self._busy_s = 0.0
+        self._busy_max_s = 0.0
+        self._slow = 0
         self._generation = 0          # reset() zählt hoch
         self._applied_generation = 0
         self._result = LocalizationResult(0.0, 0.0, 0.0, time.time())
@@ -83,6 +88,9 @@ class Localizer:
         """Vom LIDAR-Thread aufgerufen: merkt sich nur den neuesten Scan samt Odometrie, rechnet nicht."""
         odom = self._odom_getter()
         with self._cond:
+            self._offered += 1
+            if self._pending is not None:
+                self._replaced += 1  # der Pi kam mit dem vorigen Scan nicht nach
             self._pending = (timestamp, list(scan), odom)
             self._cond.notify()
 
@@ -96,11 +104,29 @@ class Localizer:
                 job, self._pending = self._pending, None
             if job is None:
                 continue
+            started = time.perf_counter()
             try:
                 self.process(*job)
+                elapsed = time.perf_counter() - started
+                self._busy_s += elapsed
+                self._busy_max_s = max(self._busy_max_s, elapsed)
+                if elapsed > config.SLAM_SLOW_SCAN_SEC:
+                    self._slow += 1
             except Exception as e:
                 logger.error(f"Positionsbestimmung Fehler: {e}")
         print("[THREAD] Localization Thread beendet")
+
+    def stats(self) -> dict:
+        """Rechenlast des Scan-Matchings: angebotene/übersprungene Scans, Rechenzeit je Scan."""
+        done = max(self._scans, 1)
+        return {
+            "offered": self._offered,
+            "skipped": self._replaced,
+            "processed": self._scans,
+            "mean_s": self._busy_s / done,
+            "max_s": self._busy_max_s,
+            "slow": self._slow,
+        }
 
     def reset(self) -> None:
         """Verwirft Karte und Pose; der nächste Scan beginnt neu bei (0, 0, 0).
